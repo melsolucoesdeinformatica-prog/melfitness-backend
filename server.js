@@ -31,14 +31,29 @@ app.use(express.json());
 
 // Configuração do pool de conexões MySQL
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
+  host: process.env.DB_HOST || 'mysql.mels.com.br',
+  user: process.env.DB_USER || 'mels06',
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME || 'mels06',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
 });
+// Testar conexão com o banco
+console.log('🔍 Tentando conectar ao MySQL...');
+console.log('Host:', process.env.DB_HOST);
+console.log('User:', process.env.DB_USER);
+console.log('Database:', process.env.DB_NAME);
+
+pool.getConnection()
+  .then(connection => {
+    console.log(' Conectado ao MySQL com sucesso!');
+    connection.release();
+  })
+  .catch(err => {
+    console.error(' Erro ao conectar no MySQL:', err.message);
+    console.error('Código do erro:', err.code);
+  });
 
 // ===== ROTA DE LOGIN =====
 app.post('/api/login', async (req, res) => {
