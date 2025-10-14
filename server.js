@@ -18,7 +18,15 @@ require('dotenv').config();
 const app = express();
 
 // Middlewares
-app.use(cors());
+app.use(cors({
+  origin: [
+    "https://meldrive.kinghost.net", // domínio do frontend
+    "http://localhost:3000"          // para testes locais
+  ],
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  credentials: true
+}));
+
 app.use(express.json());
 
 // Configuração do pool de conexões MySQL
