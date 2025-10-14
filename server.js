@@ -20,8 +20,9 @@ const app = express();
 // Middlewares
 app.use(cors({
   origin: [
-    "https://meldrive.kinghost.net", // domínio do frontend
-    "http://localhost:3000"          // para testes locais
+    "http://melgdrive.kinghost.net",  
+    "https://melgdrive.kinghost.net",  
+    "http://localhost:3000"
   ],
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true
