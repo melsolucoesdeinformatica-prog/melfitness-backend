@@ -340,13 +340,13 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
     `, [academiaid, datainicio, datafim]);
     const receitaTotal = parseFloat(receitaResult[0]?.total || 0);
 
-    // 3. Receita diária do período
+    // 3. Receita diária do período (do dia atual)
     const [receitaDiariaResult] = await pool.query(`
       SELECT COALESCE(SUM(valor), 0) as receitaDiaria
-      FROM recebimentos_diarios
+      FROM recebimentos_diarias
       WHERE id_academia = ?
-      AND DATE(data) >= ? AND DATE(data) <= ?
-    `, [academiaid, datainicio, datafim]);
+      AND DATE(data) = CURDATE()
+    `, [academiaid]);
     const receitaDiaria = parseFloat(receitaDiariaResult[0]?.receitaDiaria || 0);
 
     // 4. Receitas por mês dentro do período
