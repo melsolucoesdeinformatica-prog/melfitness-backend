@@ -307,10 +307,10 @@ app.get('/api/academia/:id/dashboard', async (req, res) => {
 // ROTA PARA BUSCAR DADOS DO DASHBOARD COM FILTRO DE PERÍODO
 app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
   try {
-    const academiaId = req.params.id;
-    const { dataInicio, dataFim } = req.query;
+    const academiaid = req.params.id;
+    const { datainicio, datafim } = req.query;
 
-     console.log('=== DEBUG DASHBOARD FILTRADO ===');
+    console.log('=== DEBUG DASHBOARD FILTRADO ===');
     console.log('Academia ID:', academiaid);
     console.log('Data Início recebida:', datainicio);
     console.log('Data Fim recebida:', datafim);
@@ -318,8 +318,8 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
     console.log('================================');
 
     // Se não tiver datas, retorna erro
-    if (!dataInicio || !dataFim) {
-      return res.status(400).json({ error: 'dataInicio e dataFim são obrigatórios' });
+    if (!datainicio || !datafim) {
+      return res.status(400).json({ error: 'datainicio e dataFim são obrigatórios' });
     }
 
     // 1. Total de membros ativos no período
@@ -328,7 +328,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       FROM recebimentos_mensalidades
       WHERE id_academia = ?
       AND data >= ? AND data <= ?
-    `, [academiaId, dataInicio, dataFim]);
+    `, [academiaid, datainicio, datafim]);
     const totalMembros = membrosResult[0]?.total || 0;
 
     // 2. Receita total do período
@@ -337,7 +337,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       FROM recebimentos_mensalidades
       WHERE id_academia = ?
       AND data >= ? AND data <= ?
-    `, [academiaId, dataInicio, dataFim]);
+    `, [academiaid, datainicio, datafim]);
     const receitaTotal = parseFloat(receitaResult[0]?.total || 0);
 
     // 3. Receita diária do período
@@ -346,7 +346,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       FROM recebimentos_diarios
       WHERE id_academia = ?
       AND DATE(data) >= ? AND DATE(data) <= ?
-    `, [academiaId, dataInicio, dataFim]);
+    `, [academiaid, datainicio, datafim]);
     const receitaDiaria = parseFloat(receitaDiariaResult[0]?.receitaDiaria || 0);
 
     // 4. Receitas por mês dentro do período
@@ -360,7 +360,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       AND data >= ? AND data <= ?
       GROUP BY YEAR(data), MONTH(data)
       ORDER BY data ASC
-    `, [academiaId, dataInicio, dataFim]);
+    `, [academiaid, datainicio, datafim]);
 
     // 5. Receita por forma de pagamento
     const [receitasPorFormaPgto] = await pool.query(`
@@ -375,7 +375,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       AND forma_pgto != ''
       GROUP BY forma_pgto
       ORDER BY valor DESC
-    `, [academiaId, dataInicio, dataFim]);
+    `, [academiaid, datainicio, datafim]);
 
     // 6. Planos ativos
     const [planosAtivos] = await pool.query(`
@@ -390,7 +390,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       AND atividades != ''
       GROUP BY atividades
       ORDER BY receita DESC
-    `, [academiaId, dataInicio, dataFim]);
+    `, [academiaid, datainicio, datafim]);
 
     // 7. Pagamentos recentes do período
     const [pagamentosRecentes] = await pool.query(`
@@ -406,25 +406,25 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       AND data >= ? AND data <= ?
       ORDER BY data DESC, hora DESC
       LIMIT 20
-    `, [academiaId, dataInicio, dataFim]);
+    `, [academiaid, datainicio, datafim]);
 
     // 8. Clientes novos no período
     const [clientesNovos] = await pool.query(`
-      SELECT * FROM clientes_novos 
-      WHERE id_academia = ? 
+      SELECT * FROM clientes_novos
+      WHERE id_academia = ?
       AND DATE(data) >= ? AND DATE(data) <= ?
-      ORDER BY data DESC, hora DESC 
+      ORDER BY data DESC, hora DESC
       LIMIT 10
-    `, [academiaId, dataInicio, dataFim]);
+    `, [academiaid, datainicio, datafim]);
 
     // 9. Clientes excluídos no período
     const [clientesExcluidos] = await pool.query(`
-      SELECT * FROM clientes_excluidos 
+      SELECT * FROM clientes_excluidos
       WHERE id_academia = ?
       AND DATE(data) >= ? AND DATE(data) <= ?
-      ORDER BY data DESC, hora DESC 
+      ORDER BY data DESC, hora DESC
       LIMIT 10
-    `, [academiaId, dataInicio, dataFim]);
+    `, [academiaid, datainicio, datafim]);
 
     // Retornar os dados
     res.json({
@@ -458,8 +458,8 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       clientesNovos: clientesNovos,
       clientesExcluidos: clientesExcluidos,
       periodoFiltrado: {
-        dataInicio,
-        dataFim
+        datainicio,
+        datafim
       }
     });
 
