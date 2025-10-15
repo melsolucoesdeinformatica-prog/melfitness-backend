@@ -310,6 +310,13 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
     const academiaId = req.params.id;
     const { dataInicio, dataFim } = req.query;
 
+     console.log('=== DEBUG DASHBOARD FILTRADO ===');
+    console.log('Academia ID:', academiaid);
+    console.log('Data Início recebida:', datainicio);
+    console.log('Data Fim recebida:', datafim);
+    console.log('Query completa:', req.query);
+    console.log('================================');
+
     // Se não tiver datas, retorna erro
     if (!dataInicio || !dataFim) {
       return res.status(400).json({ error: 'dataInicio e dataFim são obrigatórios' });
