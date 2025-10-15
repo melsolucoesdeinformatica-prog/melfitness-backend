@@ -107,6 +107,35 @@ app.post('/api/login', async (req, res) => {
     res.status(500).json({ error: 'Erro ao fazer login' });
   }
 });
+    // Rota para buscar clientes novos
+app.get('/api/clientes-novos/:academiaId', async (req, res) => {
+  try {
+    const { academiaId } = req.params;
+    const [rows] = await pool.query(
+      'SELECT * FROM clientes_novos WHERE id_academia = ? ORDER BY data DESC, hora DESC LIMIT 10',
+      [academiaId]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error('Erro ao buscar clientes novos:', error);
+    res.status(500).json({ erro: 'Erro ao buscar clientes novos' });
+  }
+});
+
+// Rota para buscar clientes excluídos
+app.get('/api/clientes-excluidos/:academiaId', async (req, res) => {
+  try {
+    const { academiaId } = req.params;
+    const [rows] = await pool.query(
+      'SELECT * FROM clientes_excluidos WHERE id_academia = ? ORDER BY data DESC, hora DESC LIMIT 10',
+      [academiaId]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error('Erro ao buscar clientes excluídos:', error);
+    res.status(500).json({ erro: 'Erro ao buscar clientes excluídos' });
+  }
+});
 
 // ===== FUNÇÃO PARA BUSCAR DADOS DO DASHBOARD =====
 async function getDashboardData(academiaId) {
