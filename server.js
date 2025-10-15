@@ -137,6 +137,24 @@ app.get('/api/clientes-excluidos/:academiaId', async (req, res) => {
   }
 });
 
+app.get('/api/receita-diaria/:academiaId', async (req, res) => {
+  try {
+    const { academiaId } = req.params;
+    const hoje = new Date().toISOString().split('T')[0]; // Data de hoje YYYY-MM-DD
+    
+    const [rows] = await pool.query(
+      `SELECT COALESCE(SUM(valor), 0) as receitaDiaria 
+       FROM recebimentos_diarias 
+       WHERE id_academia = ? AND DATE(data) = ?`,
+      [academiaId, hoje]
+    );
+    
+    res.json({ receitaDiaria: parseFloat(rows[0].receitaDiaria) });
+  } catch (error) {
+    console.error('Erro ao buscar receita diária:', error);
+    res.status(500).json({ erro: 'Erro ao buscar receita diária' });
+  }
+});
 // ===== FUNÇÃO PARA BUSCAR DADOS DO DASHBOARD =====
 async function getDashboardData(academiaId) {
   try {
