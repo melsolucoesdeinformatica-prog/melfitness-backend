@@ -304,6 +304,164 @@ app.get('/api/academia/:id/dashboard', async (req, res) => {
   }
 });
 
+// ROTA PARA BUSCAR DADOS DO DASHBOARD COM FILTRO DE PERÍODO
+app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
+  try {
+    const academiaId = req.params.id;
+    const { dataInicio, dataFim } = req.query;
+
+    // Se não tiver datas, retorna erro
+    if (!dataInicio || !dataFim) {
+      return res.status(400).json({ error: 'dataInicio e dataFim são obrigatórios' });
+    }
+
+    // 1. Total de membros ativos no período
+    const [membrosResult] = await pool.query(`
+      SELECT COUNT(DISTINCT id_original) as total
+      FROM recebimentos_mensalidades
+      WHERE id_academia = ?
+      AND data >= ? AND data <= ?
+    `, [academiaId, dataInicio, dataFim]);
+    const totalMembros = membrosResult[0]?.total || 0;
+
+    // 2. Receita total do período
+    const [receitaResult] = await pool.query(`
+      SELECT SUM(valor) as total
+      FROM recebimentos_mensalidades
+      WHERE id_academia = ?
+      AND data >= ? AND data <= ?
+    `, [academiaId, dataInicio, dataFim]);
+    const receitaTotal = parseFloat(receitaResult[0]?.total || 0);
+
+    // 3. Receita diária do período
+    const [receitaDiariaResult] = await pool.query(`
+      SELECT COALESCE(SUM(valor), 0) as receitaDiaria
+      FROM recebimentos_diarios
+      WHERE id_academia = ?
+      AND DATE(data) >= ? AND DATE(data) <= ?
+    `, [academiaId, dataInicio, dataFim]);
+    const receitaDiaria = parseFloat(receitaDiariaResult[0]?.receitaDiaria || 0);
+
+    // 4. Receitas por mês dentro do período
+    const [receitasPorMes] = await pool.query(`
+      SELECT
+        DATE_FORMAT(data, '%b') as mes,
+        SUM(valor) as receita,
+        COUNT(DISTINCT id_original) as membros
+      FROM recebimentos_mensalidades
+      WHERE id_academia = ?
+      AND data >= ? AND data <= ?
+      GROUP BY YEAR(data), MONTH(data)
+      ORDER BY data ASC
+    `, [academiaId, dataInicio, dataFim]);
+
+    // 5. Receita por forma de pagamento
+    const [receitasPorFormaPgto] = await pool.query(`
+      SELECT
+        forma_pgto as nome,
+        SUM(valor) as valor,
+        COUNT(*) as quantidade
+      FROM recebimentos_mensalidades
+      WHERE id_academia = ?
+      AND data >= ? AND data <= ?
+      AND forma_pgto IS NOT NULL
+      AND forma_pgto != ''
+      GROUP BY forma_pgto
+      ORDER BY valor DESC
+    `, [academiaId, dataInicio, dataFim]);
+
+    // 6. Planos ativos
+    const [planosAtivos] = await pool.query(`
+      SELECT
+        atividades as plano,
+        COUNT(DISTINCT id_original) as clientes,
+        SUM(valor) as receita
+      FROM recebimentos_mensalidades
+      WHERE id_academia = ?
+      AND data >= ? AND data <= ?
+      AND atividades IS NOT NULL
+      AND atividades != ''
+      GROUP BY atividades
+      ORDER BY receita DESC
+    `, [academiaId, dataInicio, dataFim]);
+
+    // 7. Pagamentos recentes do período
+    const [pagamentosRecentes] = await pool.query(`
+      SELECT
+        id,
+        nome,
+        valor,
+        forma_pgto,
+        DATE_FORMAT(data, '%d/%m/%Y') as data,
+        tipo_cliente as tipo
+      FROM recebimentos_mensalidades
+      WHERE id_academia = ?
+      AND data >= ? AND data <= ?
+      ORDER BY data DESC, hora DESC
+      LIMIT 20
+    `, [academiaId, dataInicio, dataFim]);
+
+    // 8. Clientes novos no período
+    const [clientesNovos] = await pool.query(`
+      SELECT * FROM clientes_novos 
+      WHERE id_academia = ? 
+      AND DATE(data) >= ? AND DATE(data) <= ?
+      ORDER BY data DESC, hora DESC 
+      LIMIT 10
+    `, [academiaId, dataInicio, dataFim]);
+
+    // 9. Clientes excluídos no período
+    const [clientesExcluidos] = await pool.query(`
+      SELECT * FROM clientes_excluidos 
+      WHERE id_academia = ?
+      AND DATE(data) >= ? AND DATE(data) <= ?
+      ORDER BY data DESC, hora DESC 
+      LIMIT 10
+    `, [academiaId, dataInicio, dataFim]);
+
+    // Retornar os dados
+    res.json({
+      totalMembros,
+      receitaMensal: receitaTotal,
+      receitaDiaria,
+      crescimento: 0,
+      receitasPorMes: receitasPorMes.map(r => ({
+        mes: r.mes,
+        receita: parseFloat(r.receita),
+        membros: r.membros
+      })),
+      receitasPorFormaPgto: receitasPorFormaPgto.map(r => ({
+        nome: r.nome,
+        valor: parseFloat(r.valor),
+        quantidade: r.quantidade
+      })),
+      planosAtivos: planosAtivos.map(p => ({
+        plano: p.plano,
+        clientes: p.clientes,
+        receita: parseFloat(p.receita)
+      })),
+      pagamentosRecentes: pagamentosRecentes.map(p => ({
+        id: p.id,
+        nome: p.nome,
+        valor: parseFloat(p.valor),
+        forma_pgto: p.forma_pgto,
+        data: p.data,
+        tipo: p.tipo || 'RENOVAÇÃO'
+      })),
+      clientesNovos: clientesNovos,
+      clientesExcluidos: clientesExcluidos,
+      periodoFiltrado: {
+        dataInicio,
+        dataFim
+      }
+    });
+
+  } catch (error) {
+    console.error('Erro ao buscar dados do dashboard filtrado:', error);
+    res.status(500).json({ error: 'Erro ao buscar dados do dashboard' });
+  }
+});
+
 // ===== ROTA DE TESTE =====
 app.get('/api/test', async (req, res) => {
   try {
