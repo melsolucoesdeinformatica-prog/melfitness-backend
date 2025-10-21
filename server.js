@@ -42,18 +42,18 @@ const pool = mysql.createPool({
 });
 
 // Testar conexão com o banco
-console.log(' Tentando conectar ao MySQL...');
+console.log('🔵 Tentando conectar ao MySQL...');
 console.log('Host:', process.env.DB_HOST);
 console.log('User:', process.env.DB_USER);
 console.log('Database:', process.env.DB_NAME);
 
 pool.getConnection()
   .then(connection => {
-    console.log(' Conectado ao MySQL com sucesso!');
+    console.log('✅ Conectado ao MySQL com sucesso!');
     connection.release();
   })
   .catch(err => {
-    console.error(' Erro ao conectar no MySQL:', err.message);
+    console.error('❌ Erro ao conectar no MySQL:', err.message);
     console.error('Código do erro:', err.code);
   });
 
@@ -427,9 +427,9 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
 
     // Retornar os dados
     res.json({
-      totalMembros,
-      receitaMensal: receitaTotal,
-      receitaDiaria,
+  totalMembros,
+  receitaMensal,  // ← CORRETO
+  receitaDiaria,
       crescimento: 0,
       receitasPorMes: receitasPorMes.map(r => ({
         mes: r.mes,
@@ -791,8 +791,8 @@ app.get('/api/test', async (req, res) => {
 // ===== INICIAR SERVIDOR =====
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log(` Servidor rodando na porta ${PORT}`);
-  console.log(` API disponível em http://localhost:${PORT}/api/test`);
+  console.log(`🚀 Servidor rodando na porta ${PORT}`);
+  console.log(`📡 API disponível em http://localhost:${PORT}/api/test`);
 });
 
 // ===== TRATAMENTO DE ERROS =====
