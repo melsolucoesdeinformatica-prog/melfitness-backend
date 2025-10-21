@@ -276,23 +276,6 @@ app.get('/api/clientes-excluidos/:academiaid', async (req, res) => {
   }
 });
 
-// ===== ROTA PARA BUSCAR RECEITA DIÁRIA =====
-app.get('/api/receita-diaria/:academiaid', async (req, res) => {
-  try {
-    const { academiaid } = req.params;
-    const hoje = new Date().toISOString().split('T')[0]; // Data de hoje YYYY-MM-DD
-
-    const [rows] = await pool.query(
-      'SELECT COALESCE(SUM(valor), 0) as receitaDiaria FROM recebimentos_diarias WHERE id_academia = ? AND DATE(data) = ?',
-      [academiaid, hoje]
-    );
-    res.json({ receitaDiaria: parseFloat(rows[0].receitaDiaria) });
-  } catch (error) {
-    console.error('Erro ao buscar receita diária:', error);
-    res.status(500).json({ erro: 'Erro ao buscar receita diária' });
-  }
-});
-
 // ===== ROTA PARA ATUALIZAR DADOS DE UMA ACADEMIA ESPECÍFICA =====
 app.get('/api/academia/:id/dashboard', async (req, res) => {
   try {
@@ -326,7 +309,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       SELECT COUNT(DISTINCT id_original) as total
       FROM recebimentos_mensalidades
       WHERE id_academia = ?
-      AND data >= ? AND data <= ?
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
     `, [academiaId, datainicio, datafim]);
     const totalMembros = membrosResult[0]?.total || 0;
 
@@ -335,7 +318,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       SELECT SUM(valor) as total
       FROM recebimentos_mensalidades
       WHERE id_academia = ?
-      AND data >= ? AND data <= ?
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
     `, [academiaId, datainicio, datafim]);
     const receitaMensal = parseFloat(receitaResult[0]?.total || 0);
 
@@ -356,7 +339,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
         COUNT(DISTINCT id_original) as membros
       FROM recebimentos_mensalidades
       WHERE id_academia = ?
-      AND data >= ? AND data <= ?
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
       GROUP BY YEAR(data), MONTH(data)
       ORDER BY data ASC
     `, [academiaId, datainicio, datafim]);
@@ -369,7 +352,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
         COUNT(*) as quantidade
       FROM recebimentos_mensalidades
       WHERE id_academia = ?
-      AND data >= ? AND data <= ?
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
       AND forma_pgto IS NOT NULL
       AND forma_pgto != ''
       GROUP BY forma_pgto
@@ -384,7 +367,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
         SUM(valor) as receita
       FROM recebimentos_mensalidades
       WHERE id_academia = ?
-      AND data >= ? AND data <= ?
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
       AND atividades IS NOT NULL
       AND atividades != ''
       GROUP BY atividades
@@ -398,11 +381,11 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
         nome,
         valor,
         forma_pgto,
-        DATE_FORMAT(data, '%d/%m/%Y') as data,
+        DATE_FORMAT(data, '%Y-%m-%d') as data,
         tipo_cliente as tipo
       FROM recebimentos_mensalidades
       WHERE id_academia = ?
-      AND data >= ? AND data <= ?
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
       ORDER BY data DESC, hora DESC
       LIMIT 20
     `, [academiaId, datainicio, datafim]);
@@ -411,7 +394,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
     const [clientesNovos] = await pool.query(`
       SELECT * FROM clientes_novos
       WHERE id_academia = ?
-      AND DATE(data) >= ? AND DATE(data) <= ?
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
       ORDER BY data DESC, hora DESC
       LIMIT 10
     `, [academiaId, datainicio, datafim]);
@@ -420,16 +403,16 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
     const [clientesExcluidos] = await pool.query(`
       SELECT * FROM clientes_excluidos
       WHERE id_academia = ?
-      AND DATE(data) >= ? AND DATE(data) <= ?
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
       ORDER BY data DESC, hora DESC
       LIMIT 10
     `, [academiaId, datainicio, datafim]);
 
     // Retornar os dados
     res.json({
-  totalMembros,
-  receitaMensal,  // ← CORRETO
-  receitaDiaria,
+      totalMembros,
+      receitaMensal,
+      receitaDiaria,
       crescimento: 0,
       receitasPorMes: receitasPorMes.map(r => ({
         mes: r.mes,
@@ -476,9 +459,14 @@ app.get('/api/relatorio/mensalidades/:academiaid', async (req, res) => {
     const { academiaid } = req.params;
     const { datainicio, datafim } = req.query;
 
+    console.log('=== RELATÓRIO MENSALIDADES ===');
+    console.log('Academia:', academiaid);
+    console.log('Data início:', datainicio);
+    console.log('Data fim:', datafim);
+
     let query = `
       SELECT 
-        rm.data,
+        DATE_FORMAT(rm.data, '%Y-%m-%d') as data,
         rm.hora,
         rm.nome as cliente,
         rm.valor,
@@ -493,13 +481,22 @@ app.get('/api/relatorio/mensalidades/:academiaid', async (req, res) => {
     const params = [academiaid];
 
     if (datainicio && datafim) {
-      query += ' AND rm.data >= ? AND rm.data <= ?';
+      query += ' AND DATE(rm.data) >= DATE(?) AND DATE(rm.data) <= DATE(?)';
       params.push(datainicio, datafim);
     }
 
     query += ' ORDER BY rm.data DESC, rm.hora DESC';
 
+    console.log('Query SQL:', query);
+    console.log('Params:', params);
+
     const [rows] = await pool.query(query, params);
+
+    console.log('Registros retornados:', rows.length);
+    if (rows.length > 0) {
+      console.log('Primeira data:', rows[0].data);
+      console.log('Última data:', rows[rows.length - 1].data);
+    }
 
     res.json(rows.map(row => ({
       data: row.data,
@@ -526,7 +523,7 @@ app.get('/api/relatorio/vendas/:academiaid', async (req, res) => {
 
     let query = `
       SELECT 
-        rv.data,
+        DATE_FORMAT(rv.data, '%Y-%m-%d') as data,
         rv.hora,
         rv.cliente,
         rv.valor_total as valor,
@@ -541,7 +538,7 @@ app.get('/api/relatorio/vendas/:academiaid', async (req, res) => {
     const params = [academiaid];
 
     if (datainicio && datafim) {
-      query += ' AND rv.data >= ? AND rv.data <= ?';
+      query += ' AND DATE(rv.data) >= DATE(?) AND DATE(rv.data) <= DATE(?)';
       params.push(datainicio, datafim);
     }
 
@@ -574,7 +571,7 @@ app.get('/api/relatorio/avaliacoes/:academiaid', async (req, res) => {
 
     let query = `
       SELECT 
-        ra.data,
+        DATE_FORMAT(ra.data, '%Y-%m-%d') as data,
         ra.hora,
         ra.cliente,
         ra.valor,
@@ -589,7 +586,7 @@ app.get('/api/relatorio/avaliacoes/:academiaid', async (req, res) => {
     const params = [academiaid];
 
     if (datainicio && datafim) {
-      query += ' AND ra.data >= ? AND ra.data <= ?';
+      query += ' AND DATE(ra.data) >= DATE(?) AND DATE(ra.data) <= DATE(?)';
       params.push(datainicio, datafim);
     }
 
@@ -622,7 +619,7 @@ app.get('/api/relatorio/diarias/:academiaid', async (req, res) => {
 
     let query = `
       SELECT 
-        rd.data,
+        DATE_FORMAT(rd.data, '%Y-%m-%d') as data,
         rd.hora,
         rd.cliente,
         rd.valor,
@@ -637,7 +634,7 @@ app.get('/api/relatorio/diarias/:academiaid', async (req, res) => {
     const params = [academiaid];
 
     if (datainicio && datafim) {
-      query += ' AND rd.data >= ? AND rd.data <= ?';
+      query += ' AND DATE(rd.data) >= DATE(?) AND DATE(rd.data) <= DATE(?)';
       params.push(datainicio, datafim);
     }
 
@@ -672,14 +669,14 @@ app.get('/api/relatorio/totais/:academiaid', async (req, res) => {
     const params = [academiaid];
 
     if (datainicio && datafim) {
-      whereClause += ' AND data >= ? AND data <= ?';
+      whereClause += ' AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)';
       params.push(datainicio, datafim);
     }
 
     // União de todas as tabelas de recebimentos
     const query = `
       SELECT 
-        data, hora, nome as cliente, valor, atividades as atividade, 
+        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, nome as cliente, valor, atividades as atividade, 
         forma_pgto, tipo_cliente, funcionario, 'MENSALIDADE' as origem
       FROM recebimentos_mensalidades
       ${whereClause}
@@ -687,7 +684,7 @@ app.get('/api/relatorio/totais/:academiaid', async (req, res) => {
       UNION ALL
       
       SELECT 
-        data, hora, cliente, valor_total as valor, produtos as atividade, 
+        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, cliente, valor_total as valor, produtos as atividade, 
         forma_pgto, 'VENDA' as tipo_cliente, funcionario, 'VENDA' as origem
       FROM recebimentos_vendas
       ${whereClause}
@@ -695,7 +692,7 @@ app.get('/api/relatorio/totais/:academiaid', async (req, res) => {
       UNION ALL
       
       SELECT 
-        data, hora, cliente, valor, 'AVALIAÇÃO FÍSICA' as atividade, 
+        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, cliente, valor, 'AVALIAÇÃO FÍSICA' as atividade, 
         '' as forma_pgto, 'AVALIAÇÃO' as tipo_cliente, funcionario, 'AVALIAÇÃO' as origem
       FROM recebimentos_avaliacoes
       ${whereClause}
@@ -703,7 +700,7 @@ app.get('/api/relatorio/totais/:academiaid', async (req, res) => {
       UNION ALL
       
       SELECT 
-        data, hora, cliente, valor, 'DIÁRIA' as atividade, 
+        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, cliente, valor, 'DIÁRIA' as atividade, 
         forma_pgto, 'DIÁRIA' as tipo_cliente, funcionario, 'DIÁRIA' as origem
       FROM recebimentos_diarias
       ${whereClause}
@@ -742,7 +739,7 @@ app.get('/api/relatorio/frequencia/:academiaid', async (req, res) => {
 
     let query = `
       SELECT 
-        f.data,
+        DATE_FORMAT(f.data, '%Y-%m-%d') as data,
         f.hora,
         f.cliente,
         f.tipo_acesso,
@@ -754,7 +751,7 @@ app.get('/api/relatorio/frequencia/:academiaid', async (req, res) => {
     const params = [academiaid];
 
     if (datainicio && datafim) {
-      query += ' AND f.data >= ? AND f.data <= ?';
+      query += ' AND DATE(f.data) >= DATE(?) AND DATE(f.data) <= DATE(?)';
       params.push(datainicio, datafim);
     }
 
