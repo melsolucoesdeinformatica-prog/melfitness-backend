@@ -113,7 +113,7 @@ app.post('/api/login', async (req, res) => {
 async function getDashboardData(academiaId) {
   try {
     // 1. Total de membros ativos (baseado em clientes_novos ou frequencia)
-    const [membrosResult] = await pool.query(`
+   const [membrosResult] = await pool.query(`
       SELECT COUNT(DISTINCT id_original) as total
       FROM recebimentos_mensalidades
       WHERE id_academia = ?
