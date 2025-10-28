@@ -42,18 +42,18 @@ const pool = mysql.createPool({
 });
 
 // Testar conexão com o banco
-console.log('🔵 Tentando conectar ao MySQL...');
+console.log(' Tentando conectar ao MySQL...');
 console.log('Host:', process.env.DB_HOST);
 console.log('User:', process.env.DB_USER);
 console.log('Database:', process.env.DB_NAME);
 
 pool.getConnection()
   .then(connection => {
-    console.log('✅ Conectado ao MySQL com sucesso!');
+    console.log(' Conectado ao MySQL com sucesso!');
     connection.release();
   })
   .catch(err => {
-    console.error('❌ Erro ao conectar no MySQL:', err.message);
+    console.error(' Erro ao conectar no MySQL:', err.message);
     console.error('Código do erro:', err.code);
   });
 
@@ -289,6 +289,366 @@ app.get('/api/academia/:id/dashboard', async (req, res) => {
 });
 
 // ===== ROTA PARA BUSCAR DADOS DO DASHBOARD COM FILTRO DE PERÍODO =====
+
+// ===== ROTA PARA BUSCAR DADOS AGREGADOS DE MÚLTIPLAS ACADEMIAS =====
+app.get('/api/proprietario/dashboard-filtrado', async (req, res) => {
+  try {
+    const { academiaIds, datainicio, datafim } = req.query;
+
+    console.log('=== DEBUG DASHBOARD MÚLTIPLAS ACADEMIAS ===');
+    console.log('Academia IDs:', academiaIds);
+    console.log('Data início recebida:', datainicio);
+    console.log('Data fim recebida:', datafim);
+
+    if (!academiaIds || !datainicio || !datafim) {
+      return res.status(400).json({ erro: 'academiaIds, datainicio e datafim são obrigatórios' });
+    }
+
+    const idsArray = academiaIds.split(',').map(id => parseInt(id));
+
+    // 1. Total de membros ativos no período (todas as academias)
+    const [membrosResult] = await pool.query(`
+      SELECT COUNT(DISTINCT id_original) as total
+      FROM recebimentos_mensalidades
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+    `, [idsArray, datainicio, datafim]);
+    const totalMembros = membrosResult[0]?.total || 0;
+
+    // 2. Receita total do período (todas as academias)
+    const [receitaResult] = await pool.query(`
+      SELECT SUM(valor) as total
+      FROM recebimentos_mensalidades
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+    `, [idsArray, datainicio, datafim]);
+    const receitaMensal = parseFloat(receitaResult[0]?.total || 0);
+
+    // 3. Receita diária (do dia atual - todas as academias)
+    const [receitaDiariaResult] = await pool.query(`
+      SELECT COALESCE(SUM(valor), 0) as receitaDiaria
+      FROM recebimentos_diarias
+      WHERE id_academia IN (?)
+      AND DATE(data) = CURDATE()
+    `, [idsArray]);
+    const receitaDiaria = parseFloat(receitaDiariaResult[0]?.receitaDiaria || 0);
+
+    // 4. Receitas por mês (todas as academias)
+    const [receitasPorMes] = await pool.query(`
+      SELECT
+        DATE_FORMAT(data, '%b') as mes,
+        SUM(valor) as receita,
+        COUNT(DISTINCT id_original) as membros
+      FROM recebimentos_mensalidades
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+      GROUP BY YEAR(data), MONTH(data)
+      ORDER BY data ASC
+    `, [idsArray, datainicio, datafim]);
+
+    // 5. Receita por forma de pagamento (todas as academias)
+    const [receitasPorFormaPgto] = await pool.query(`
+      SELECT
+        forma_pgto as nome,
+        SUM(valor) as valor,
+        COUNT(*) as quantidade
+      FROM recebimentos_mensalidades
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+      AND forma_pgto IS NOT NULL
+      AND forma_pgto != ''
+      GROUP BY forma_pgto
+      ORDER BY valor DESC
+    `, [idsArray, datainicio, datafim]);
+
+    // 6. Planos ativos (todas as academias)
+    const [planosAtivos] = await pool.query(`
+      SELECT
+        atividades as plano,
+        COUNT(DISTINCT id_original) as clientes,
+        SUM(valor) as receita
+      FROM recebimentos_mensalidades
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+      AND atividades IS NOT NULL
+      AND atividades != ''
+      GROUP BY atividades
+      ORDER BY receita DESC
+    `, [idsArray, datainicio, datafim]);
+
+    // 7. Pagamentos recentes (todas as academias)
+    const [pagamentosRecentes] = await pool.query(`
+      SELECT
+        id,
+        nome,
+        valor,
+        forma_pgto,
+        DATE_FORMAT(data, '%Y-%m-%d') as data,
+        tipo_cliente as tipo
+      FROM recebimentos_mensalidades
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+      ORDER BY data DESC, hora DESC
+      LIMIT 20
+    `, [idsArray, datainicio, datafim]);
+
+    // 8. Clientes novos (todas as academias)
+    const [clientesNovos] = await pool.query(`
+      SELECT * FROM clientes_novos
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+      ORDER BY data DESC, hora DESC
+      LIMIT 10
+    `, [idsArray, datainicio, datafim]);
+
+    // 9. Clientes excluídos (todas as academias)
+    const [clientesExcluidos] = await pool.query(`
+      SELECT * FROM clientes_excluidos
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+      ORDER BY data DESC, hora DESC
+      LIMIT 10
+    `, [idsArray, datainicio, datafim]);
+
+    // 10. Clientes novos por mês (últimos 6 meses - todas as academias)
+    const [clientesNovosPorMes] = await pool.query(`
+      SELECT
+        DATE_FORMAT(data, '%b') as mes,
+        COUNT(*) as quantidade
+      FROM clientes_novos
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+      GROUP BY YEAR(data), MONTH(data)
+      ORDER BY data ASC
+    `, [idsArray]);
+
+    // Retornar os dados
+    res.json({
+      totalMembros,
+      receitaMensal,
+      receitaDiaria,
+      crescimento: 0,
+      receitasPorMes: receitasPorMes.map(r => ({
+        mes: r.mes,
+        receita: parseFloat(r.receita),
+        membros: r.membros
+      })),
+      receitasPorFormaPgto: receitasPorFormaPgto.map(r => ({
+        nome: r.nome,
+        valor: parseFloat(r.valor),
+        quantidade: r.quantidade
+      })),
+      planosAtivos: planosAtivos.map(p => ({
+        plano: p.plano,
+        clientes: p.clientes,
+        receita: parseFloat(p.receita)
+      })),
+      pagamentosRecentes: pagamentosRecentes.map(p => ({
+        id: p.id,
+        nome: p.nome,
+        valor: parseFloat(p.valor),
+        forma_pgto: p.forma_pgto,
+        data: p.data,
+        tipo: p.tipo || 'RENOVAÇÃO'
+      })),
+      clientesNovos: clientesNovos,
+      clientesExcluidos: clientesExcluidos,
+      clientesNovosPorMes: clientesNovosPorMes.map(c => ({
+        mes: c.mes,
+        quantidade: c.quantidade
+      })),
+      periodoFiltrado: {
+        datainicio,
+        datafim
+      }
+    });
+
+  } catch (error) {
+    console.error('Erro ao buscar dados do dashboard (múltiplas academias):', error);
+    res.status(500).json({ erro: 'Erro ao buscar dados do dashboard' });
+  }
+});
+
+// Endpoint para dashboard consolidado (todas as academias)
+app.get('/api/academias/dashboard-consolidado', async (req, res) => {
+  try {
+    const { ids, datainicio, datafim } = req.query;
+
+    console.log('=== DEBUG DASHBOARD CONSOLIDADO ===');
+    console.log('IDs das academias:', ids);
+    console.log('Data início:', datainicio);
+    console.log('Data fim:', datafim);
+
+    if (!ids || !datainicio || !datafim) {
+      return res.status(400).json({ erro: 'ids, datainicio e datafim são obrigatórios' });
+    }
+
+    const academiaIds = ids.split(',').map(id => parseInt(id));
+
+    // 1. Total de membros ativos (somando todas as academias)
+    const [membrosResult] = await pool.query(`
+      SELECT COUNT(DISTINCT id_original) as total
+      FROM recebimentos_mensalidades
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+    `, [academiaIds, datainicio, datafim]);
+    const totalMembros = membrosResult[0]?.total || 0;
+
+    // 2. Receita total consolidada
+    const [receitaResult] = await pool.query(`
+      SELECT SUM(valor) as total
+      FROM recebimentos_mensalidades
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+    `, [academiaIds, datainicio, datafim]);
+    const receitaMensal = parseFloat(receitaResult[0]?.total || 0);
+
+    // 3. Receita diária consolidada
+    const [receitaDiariaResult] = await pool.query(`
+      SELECT COALESCE(SUM(valor), 0) as receitaDiaria
+      FROM recebimentos_diarias
+      WHERE id_academia IN (?)
+      AND DATE(data) = CURDATE()
+    `, [academiaIds]);
+    const receitaDiaria = parseFloat(receitaDiariaResult[0]?.receitaDiaria || 0);
+
+    // 4. Receitas por mês consolidadas
+    const [receitasPorMes] = await pool.query(`
+      SELECT
+        DATE_FORMAT(data, '%b') as mes,
+        SUM(valor) as receita,
+        COUNT(DISTINCT id_original) as membros
+      FROM recebimentos_mensalidades
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+      GROUP BY YEAR(data), MONTH(data)
+      ORDER BY data ASC
+    `, [academiaIds, datainicio, datafim]);
+
+    // 5. Receita por forma de pagamento consolidada
+    const [receitasPorFormaPgto] = await pool.query(`
+      SELECT
+        forma_pgto as nome,
+        SUM(valor) as valor,
+        COUNT(*) as quantidade
+      FROM recebimentos_mensalidades
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+      AND forma_pgto IS NOT NULL
+      AND forma_pgto != ''
+      GROUP BY forma_pgto
+      ORDER BY valor DESC
+    `, [academiaIds, datainicio, datafim]);
+
+    // 6. Planos ativos consolidados
+    const [planosAtivos] = await pool.query(`
+      SELECT
+        atividades as plano,
+        COUNT(DISTINCT id_original) as clientes,
+        SUM(valor) as receita
+      FROM recebimentos_mensalidades
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+      AND atividades IS NOT NULL
+      AND atividades != ''
+      GROUP BY atividades
+      ORDER BY receita DESC
+    `, [academiaIds, datainicio, datafim]);
+
+    // 7. Pagamentos recentes consolidados
+    const [pagamentosRecentes] = await pool.query(`
+      SELECT
+        rm.id,
+        rm.nome,
+        rm.valor,
+        rm.forma_pgto,
+        DATE_FORMAT(rm.data, '%Y-%m-%d') as data,
+        rm.tipo_cliente as tipo
+      FROM recebimentos_mensalidades rm
+      WHERE rm.id_academia IN (?)
+      AND DATE(rm.data) >= DATE(?) AND DATE(rm.data) <= DATE(?)
+      ORDER BY rm.data DESC, rm.hora DESC
+      LIMIT 20
+    `, [academiaIds, datainicio, datafim]);
+
+    // 8. Clientes novos consolidados
+    const [clientesNovos] = await pool.query(`
+      SELECT * FROM clientes_novos
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+      ORDER BY data DESC, hora DESC
+      LIMIT 10
+    `, [academiaIds, datainicio, datafim]);
+
+    // 9. Clientes excluídos consolidados
+    const [clientesExcluidos] = await pool.query(`
+      SELECT * FROM clientes_excluidos
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+      ORDER BY data DESC, hora DESC
+      LIMIT 10
+    `, [academiaIds, datainicio, datafim]);
+
+    // 10. Clientes novos por mês consolidados
+    const [clientesNovosPorMes] = await pool.query(`
+      SELECT
+        DATE_FORMAT(data, '%b') as mes,
+        COUNT(*) as quantidade
+      FROM clientes_novos
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+      GROUP BY YEAR(data), MONTH(data)
+      ORDER BY data ASC
+    `, [academiaIds]);
+
+    // Retornar dados consolidados
+    res.json({
+      totalMembros,
+      receitaMensal,
+      receitaDiaria,
+      crescimento: 0,
+      receitasPorMes: receitasPorMes.map(r => ({
+        mes: r.mes,
+        receita: parseFloat(r.receita),
+        membros: r.membros
+      })),
+      receitasPorFormaPgto: receitasPorFormaPgto.map(r => ({
+        nome: r.nome,
+        valor: parseFloat(r.valor),
+        quantidade: r.quantidade
+      })),
+      planosAtivos: planosAtivos.map(p => ({
+        plano: p.plano,
+        clientes: p.clientes,
+        receita: parseFloat(p.receita)
+      })),
+      pagamentosRecentes: pagamentosRecentes.map(p => ({
+        id: p.id,
+        nome: p.nome,
+        valor: parseFloat(p.valor),
+        forma_pgto: p.forma_pgto,
+        data: p.data,
+        tipo: p.tipo || 'RENOVAÇÃO'
+      })),
+      clientesNovos: clientesNovos,
+      clientesExcluidos: clientesExcluidos,
+      clientesNovosPorMes: clientesNovosPorMes.map(c => ({
+        mes: c.mes,
+        quantidade: c.quantidade
+      })),
+      periodoFiltrado: {
+        datainicio,
+        datafim
+      }
+    });
+
+  } catch (error) {
+    console.error('Erro ao buscar dados consolidados:', error);
+    res.status(500).json({ erro: 'Erro ao buscar dados consolidados' });
+  }
+});
+
+
 app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
   try {
     const academiaId = req.params.id;
@@ -805,8 +1165,8 @@ app.get('/api/test', async (req, res) => {
 // ===== INICIAR SERVIDOR =====
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log(` Servidor rodando na porta ${PORT}`);
-  console.log(` API disponível em http://localhost:${PORT}/api/test`);
+  console.log(`🚀 Servidor rodando na porta ${PORT}`);
+  console.log(`📡 API disponível em http://localhost:${PORT}/api/test`);
 });
 
 // ===== TRATAMENTO DE ERROS =====
