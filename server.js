@@ -22,7 +22,8 @@ app.use(cors({
   origin: [
     "http://melgdrive.kinghost.net",
     "https://melgdrive.kinghost.net",
-    "http://localhost:3000"
+    "http://localhost:3000",
+    "http://localhost:3001"
   ],
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true
@@ -42,18 +43,18 @@ const pool = mysql.createPool({
 });
 
 // Testar conexão com o banco
-console.log('🔵 Tentando conectar ao MySQL...');
+console.log(' Tentando conectar ao MySQL...');
 console.log('Host:', process.env.DB_HOST);
 console.log('User:', process.env.DB_USER);
 console.log('Database:', process.env.DB_NAME);
 
 pool.getConnection()
   .then(connection => {
-    console.log('✅ Conectado ao MySQL com sucesso!');
+    console.log(' Conectado ao MySQL com sucesso!');
     connection.release();
   })
   .catch(err => {
-    console.error('❌ Erro ao conectar no MySQL:', err.message);
+    console.error(' Erro ao conectar no MySQL:', err.message);
     console.error('Código do erro:', err.code);
   });
 
@@ -288,190 +289,7 @@ app.get('/api/academia/:id/dashboard', async (req, res) => {
   }
 });
 
-// ===== ROTA PARA BUSCAR DADOS DO DASHBOARD COM FILTRO DE PERÍODO =====
-
-// ===== ROTA PARA BUSCAR DADOS AGREGADOS DE MÚLTIPLAS ACADEMIAS =====
-app.get('/api/proprietario/dashboard-filtrado', async (req, res) => {
-  try {
-    const { academiaIds, datainicio, datafim } = req.query;
-
-    console.log('=== DEBUG DASHBOARD MÚLTIPLAS ACADEMIAS ===');
-    console.log('Academia IDs:', academiaIds);
-    console.log('Data início recebida:', datainicio);
-    console.log('Data fim recebida:', datafim);
-
-    if (!academiaIds || !datainicio || !datafim) {
-      return res.status(400).json({ erro: 'academiaIds, datainicio e datafim são obrigatórios' });
-    }
-
-    const idsArray = academiaIds.split(',').map(id => parseInt(id));
-
-    // 1. Total de membros ativos no período (todas as academias)
-    const [membrosResult] = await pool.query(`
-      SELECT COUNT(DISTINCT id_original) as total
-      FROM recebimentos_mensalidades
-      WHERE id_academia IN (?)
-      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
-    `, [idsArray, datainicio, datafim]);
-    const totalMembros = membrosResult[0]?.total || 0;
-
-    // 2. Receita total do período (todas as academias)
-    const [receitaResult] = await pool.query(`
-      SELECT SUM(valor) as total
-      FROM recebimentos_mensalidades
-      WHERE id_academia IN (?)
-      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
-    `, [idsArray, datainicio, datafim]);
-    const receitaMensal = parseFloat(receitaResult[0]?.total || 0);
-
-    // 3. Receita diária (do dia atual - todas as academias)
-    const [receitaDiariaResult] = await pool.query(`
-      SELECT COALESCE(SUM(valor), 0) as receitaDiaria
-      FROM recebimentos_diarias
-      WHERE id_academia IN (?)
-      AND DATE(data) = CURDATE()
-    `, [idsArray]);
-    const receitaDiaria = parseFloat(receitaDiariaResult[0]?.receitaDiaria || 0);
-
-    // 4. Receitas por mês (todas as academias)
-    const [receitasPorMes] = await pool.query(`
-      SELECT
-        DATE_FORMAT(data, '%b') as mes,
-        SUM(valor) as receita,
-        COUNT(DISTINCT id_original) as membros
-      FROM recebimentos_mensalidades
-      WHERE id_academia IN (?)
-      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
-      GROUP BY YEAR(data), MONTH(data)
-      ORDER BY data ASC
-    `, [idsArray, datainicio, datafim]);
-
-    // 5. Receita por forma de pagamento (todas as academias)
-    const [receitasPorFormaPgto] = await pool.query(`
-      SELECT
-        forma_pgto as nome,
-        SUM(valor) as valor,
-        COUNT(*) as quantidade
-      FROM recebimentos_mensalidades
-      WHERE id_academia IN (?)
-      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
-      AND forma_pgto IS NOT NULL
-      AND forma_pgto != ''
-      GROUP BY forma_pgto
-      ORDER BY valor DESC
-    `, [idsArray, datainicio, datafim]);
-
-    // 6. Planos ativos (todas as academias)
-    const [planosAtivos] = await pool.query(`
-      SELECT
-        atividades as plano,
-        COUNT(DISTINCT id_original) as clientes,
-        SUM(valor) as receita
-      FROM recebimentos_mensalidades
-      WHERE id_academia IN (?)
-      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
-      AND atividades IS NOT NULL
-      AND atividades != ''
-      GROUP BY atividades
-      ORDER BY receita DESC
-    `, [idsArray, datainicio, datafim]);
-
-    // 7. Pagamentos recentes (todas as academias)
-    const [pagamentosRecentes] = await pool.query(`
-      SELECT
-        id,
-        nome,
-        valor,
-        forma_pgto,
-        DATE_FORMAT(data, '%Y-%m-%d') as data,
-        tipo_cliente as tipo
-      FROM recebimentos_mensalidades
-      WHERE id_academia IN (?)
-      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
-      ORDER BY data DESC, hora DESC
-      LIMIT 20
-    `, [idsArray, datainicio, datafim]);
-
-    // 8. Clientes novos (todas as academias)
-    const [clientesNovos] = await pool.query(`
-      SELECT * FROM clientes_novos
-      WHERE id_academia IN (?)
-      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
-      ORDER BY data DESC, hora DESC
-      LIMIT 10
-    `, [idsArray, datainicio, datafim]);
-
-    // 9. Clientes excluídos (todas as academias)
-    const [clientesExcluidos] = await pool.query(`
-      SELECT * FROM clientes_excluidos
-      WHERE id_academia IN (?)
-      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
-      ORDER BY data DESC, hora DESC
-      LIMIT 10
-    `, [idsArray, datainicio, datafim]);
-
-    // 10. Clientes novos por mês (últimos 6 meses - todas as academias)
-    const [clientesNovosPorMes] = await pool.query(`
-      SELECT
-        DATE_FORMAT(data, '%b') as mes,
-        COUNT(*) as quantidade
-      FROM clientes_novos
-      WHERE id_academia IN (?)
-      AND DATE(data) >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-      GROUP BY YEAR(data), MONTH(data)
-      ORDER BY data ASC
-    `, [idsArray]);
-
-    // Retornar os dados
-    res.json({
-      totalMembros,
-      receitaMensal,
-      receitaDiaria,
-      crescimento: 0,
-      receitasPorMes: receitasPorMes.map(r => ({
-        mes: r.mes,
-        receita: parseFloat(r.receita),
-        membros: r.membros
-      })),
-      receitasPorFormaPgto: receitasPorFormaPgto.map(r => ({
-        nome: r.nome,
-        valor: parseFloat(r.valor),
-        quantidade: r.quantidade
-      })),
-      planosAtivos: planosAtivos.map(p => ({
-        plano: p.plano,
-        clientes: p.clientes,
-        receita: parseFloat(p.receita)
-      })),
-      pagamentosRecentes: pagamentosRecentes.map(p => ({
-        id: p.id,
-        nome: p.nome,
-        valor: parseFloat(p.valor),
-        forma_pgto: p.forma_pgto,
-        data: p.data,
-        tipo: p.tipo || 'RENOVAÇÃO'
-      })),
-      clientesNovos: clientesNovos,
-      clientesExcluidos: clientesExcluidos,
-      clientesNovosPorMes: clientesNovosPorMes.map(c => ({
-        mes: c.mes,
-        quantidade: c.quantidade
-      })),
-      periodoFiltrado: {
-        datainicio,
-        datafim
-      }
-    });
-
-  } catch (error) {
-    console.error('Erro ao buscar dados do dashboard (múltiplas academias):', error);
-    res.status(500).json({ erro: 'Erro ao buscar dados do dashboard' });
-  }
-});
-
-// ENDPOINT CORRIGIDO PARA DASHBOARD CONSOLIDADO
-// Cole este código no seu server.js, substituindo o endpoint existente
-
+// ===== DASHBOARD CONSOLIDADO (MÚLTIPLAS ACADEMIAS) =====
 app.get('/api/academias/dashboard-consolidado', async (req, res) => {
   try {
     const { ids, datainicio, datafim } = req.query;
@@ -485,11 +303,10 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       return res.status(400).json({ erro: 'ids, datainicio e datafim são obrigatórios' });
     }
 
-    // Converter IDs para array de números
     const academiaIds = ids.split(',').map(id => parseInt(id));
     console.log('IDs convertidos:', academiaIds);
 
-    // 1. Total de membros ativos (clientes únicos que pagaram no período)
+    // 1. Total de membros ativos
     const [membrosResult] = await pool.query(`
       SELECT COUNT(DISTINCT id_original) as total
       FROM recebimentos_mensalidades
@@ -499,9 +316,8 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
     `, [academiaIds, datainicio, datafim]);
     
     const totalMembros = membrosResult[0]?.total || 0;
-    console.log('Total membros:', totalMembros);
 
-    // 2. Receita total consolidada (mensalidades)
+    // 2. Receita total consolidada
     const [receitaResult] = await pool.query(`
       SELECT COALESCE(SUM(valor), 0) as total
       FROM recebimentos_mensalidades
@@ -511,9 +327,8 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
     `, [academiaIds, datainicio, datafim]);
     
     const receitaMensal = parseFloat(receitaResult[0]?.total || 0);
-    console.log('Receita mensal:', receitaMensal);
 
-    // 3. Receita diária (hoje) - apenas mensalidades
+    // 3. Receita diária
     const [receitaDiariaResult] = await pool.query(`
       SELECT COALESCE(SUM(valor), 0) as receitaDiaria
       FROM recebimentos_mensalidades
@@ -522,7 +337,6 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
     `, [academiaIds]);
     
     const receitaDiaria = parseFloat(receitaDiariaResult[0]?.receitaDiaria || 0);
-    console.log('Receita diária:', receitaDiaria);
 
     // 4. Receitas por mês
     const [receitasPorMes] = await pool.query(`
@@ -537,8 +351,6 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       GROUP BY YEAR(data), MONTH(data), DATE_FORMAT(data, '%b')
       ORDER BY YEAR(data) ASC, MONTH(data) ASC
     `, [academiaIds, datainicio, datafim]);
-    
-    console.log('Receitas por mês:', receitasPorMes.length, 'registros');
 
     // 5. Receita por forma de pagamento
     const [receitasPorFormaPgto] = await pool.query(`
@@ -555,8 +367,6 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       GROUP BY forma_pgto
       ORDER BY valor DESC
     `, [academiaIds, datainicio, datafim]);
-    
-    console.log('Formas de pagamento:', receitasPorFormaPgto.length);
 
     // 6. Planos ativos
     const [planosAtivos] = await pool.query(`
@@ -573,8 +383,6 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       GROUP BY atividades
       ORDER BY receita DESC
     `, [academiaIds, datainicio, datafim]);
-    
-    console.log('Planos ativos:', planosAtivos.length);
 
     // 7. Pagamentos recentes
     const [pagamentosRecentes] = await pool.query(`
@@ -592,8 +400,6 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       ORDER BY data DESC, hora DESC
       LIMIT 20
     `, [academiaIds, datainicio, datafim]);
-    
-    console.log('Pagamentos recentes:', pagamentosRecentes.length);
 
     // 8. Clientes novos
     const [clientesNovos] = await pool.query(`
@@ -612,10 +418,8 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       ORDER BY data DESC, hora DESC
       LIMIT 10
     `, [academiaIds, datainicio, datafim]);
-    
-    console.log('Clientes novos:', clientesNovos.length);
 
-    // 9. Clientes excluídos (se a tabela existir)
+    // 9. Clientes excluídos
     let clientesExcluidos = [];
     try {
       const [result] = await pool.query(`
@@ -628,10 +432,10 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       `, [academiaIds, datainicio, datafim]);
       clientesExcluidos = result;
     } catch (error) {
-      console.log('Tabela clientes_excluidos não existe ou erro:', error.message);
+      console.log('Tabela clientes_excluidos não existe:', error.message);
     }
 
-    // 10. Clientes novos por mês (últimos 6 meses)
+    // 10. Clientes novos por mês
     const [clientesNovosPorMes] = await pool.query(`
       SELECT
         DATE_FORMAT(data, '%b') as mes,
@@ -642,10 +446,7 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       GROUP BY YEAR(data), MONTH(data), DATE_FORMAT(data, '%b')
       ORDER BY YEAR(data) ASC, MONTH(data) ASC
     `, [academiaIds]);
-    
-    console.log('Clientes novos por mês:', clientesNovosPorMes.length);
 
-    // Preparar resposta
     const response = {
       totalMembros,
       receitaMensal,
@@ -686,17 +487,11 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       }
     };
 
-    console.log('=== RESPOSTA FINAL ===');
-    console.log('Total Membros:', response.totalMembros);
-    console.log('Receita Mensal:', response.receitaMensal);
-    console.log('Receitas por mês:', response.receitasPorMes.length);
-    console.log('======================');
-
+    console.log('✅ Resposta enviada com sucesso');
     res.json(response);
 
   } catch (error) {
-    console.error(' ERRO ao buscar dados consolidados:', error);
-    console.error('Stack:', error.stack);
+    console.error('❌ ERRO ao buscar dados consolidados:', error);
     res.status(500).json({ 
       erro: 'Erro ao buscar dados consolidados', 
       detalhes: error.message 
@@ -704,7 +499,7 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
   }
 });
 
-
+// ===== DASHBOARD FILTRADO (ACADEMIA INDIVIDUAL) =====
 app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
   try {
     const academiaId = req.params.id;
@@ -712,15 +507,14 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
 
     console.log('=== DEBUG DASHBOARD FILTRADO ===');
     console.log('Academia ID:', academiaId);
-    console.log('Data início recebida:', datainicio);
-    console.log('Data fim recebida:', datafim);
+    console.log('Data início:', datainicio);
+    console.log('Data fim:', datafim);
 
-    // Se não tiver datas, retorna erro
     if (!datainicio || !datafim) {
       return res.status(400).json({ erro: 'datainicio e datafim são obrigatórios' });
     }
 
-    // 1. Total de membros ativos no período
+    // 1. Total de membros ativos
     const [membrosResult] = await pool.query(`
       SELECT COUNT(DISTINCT id_original) as total
       FROM recebimentos_mensalidades
@@ -729,7 +523,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
     `, [academiaId, datainicio, datafim]);
     const totalMembros = membrosResult[0]?.total || 0;
 
-    // 2. Receita total do período
+    // 2. Receita total
     const [receitaResult] = await pool.query(`
       SELECT SUM(valor) as total
       FROM recebimentos_mensalidades
@@ -738,7 +532,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
     `, [academiaId, datainicio, datafim]);
     const receitaMensal = parseFloat(receitaResult[0]?.total || 0);
 
-    // 3. Receita diária do período (do dia atual)
+    // 3. Receita diária
     const [receitaDiariaResult] = await pool.query(`
       SELECT COALESCE(SUM(valor), 0) as receitaDiaria
       FROM recebimentos_diarias
@@ -747,7 +541,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
     `, [academiaId]);
     const receitaDiaria = parseFloat(receitaDiariaResult[0]?.receitaDiaria || 0);
 
-    // 4. Receitas por mês dentro do período
+    // 4. Receitas por mês
     const [receitasPorMes] = await pool.query(`
       SELECT
         DATE_FORMAT(data, '%b') as mes,
@@ -790,7 +584,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       ORDER BY receita DESC
     `, [academiaId, datainicio, datafim]);
 
-    // 7. Pagamentos recentes do período
+    // 7. Pagamentos recentes
     const [pagamentosRecentes] = await pool.query(`
       SELECT
         id,
@@ -806,7 +600,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       LIMIT 20
     `, [academiaId, datainicio, datafim]);
 
-    // 8. Clientes novos no período
+    // 8. Clientes novos
     const [clientesNovos] = await pool.query(`
       SELECT * FROM clientes_novos
       WHERE id_academia = ?
@@ -815,7 +609,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       LIMIT 10
     `, [academiaId, datainicio, datafim]);
 
-    // 9. Clientes excluídos no período
+    // 9. Clientes excluídos
     const [clientesExcluidos] = await pool.query(`
       SELECT * FROM clientes_excluidos
       WHERE id_academia = ?
@@ -824,7 +618,7 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       LIMIT 10
     `, [academiaId, datainicio, datafim]);
 
-    // 10. Clientes novos por mês (últimos 6 meses)
+    // 10. Clientes novos por mês
     const [clientesNovosPorMes] = await pool.query(`
       SELECT
         DATE_FORMAT(data, '%b') as mes,
@@ -836,8 +630,6 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       ORDER BY data ASC
     `, [academiaId]);
 
-
-    // Retornar os dados
     res.json({
       totalMembros,
       receitaMensal,
@@ -879,20 +671,20 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Erro ao buscar dados do dashboard filtrado:', error);
+    console.error('Erro ao buscar dashboard filtrado:', error);
     res.status(500).json({ erro: 'Erro ao buscar dados do dashboard' });
   }
 });
 
-// ===== NOVAS ROTAS DE RELATÓRIOS =====
+// ===== RELATÓRIOS - ACADEMIA INDIVIDUAL =====
 
-// 1. RELATÓRIO DE MENSALIDADES COMPLETO
+// 1. RELATÓRIO DE MENSALIDADES
 app.get('/api/relatorio/mensalidades/:academiaid', async (req, res) => {
   try {
     const { academiaid } = req.params;
     const { datainicio, datafim } = req.query;
 
-    console.log('=== RELATÓRIO MENSALIDADES ===');
+    console.log('=== RELATÓRIO MENSALIDADES (INDIVIDUAL) ===');
     console.log('Academia:', academiaid);
     console.log('Data início:', datainicio);
     console.log('Data fim:', datafim);
@@ -920,16 +712,8 @@ app.get('/api/relatorio/mensalidades/:academiaid', async (req, res) => {
 
     query += ' ORDER BY rm.data DESC, rm.hora DESC';
 
-    console.log('Query SQL:', query);
-    console.log('Params:', params);
-
     const [rows] = await pool.query(query, params);
-
     console.log('Registros retornados:', rows.length);
-    if (rows.length > 0) {
-      console.log('Primeira data:', rows[0].data);
-      console.log('Última data:', rows[rows.length - 1].data);
-    }
 
     res.json(rows.map(row => ({
       data: row.data,
@@ -996,7 +780,7 @@ app.get('/api/relatorio/vendas/:academiaid', async (req, res) => {
   }
 });
 
-// 3. RELATÓRIO DE AVALIAÇÕES FÍSICAS
+// 3. RELATÓRIO DE AVALIAÇÕES
 app.get('/api/relatorio/avaliacoes/:academiaid', async (req, res) => {
   try {
     const { academiaid } = req.params;
@@ -1092,7 +876,7 @@ app.get('/api/relatorio/diarias/:academiaid', async (req, res) => {
   }
 });
 
-// 5. RELATÓRIO DE RECEBIMENTOS TOTAIS (CONSOLIDADO)
+// 5. RELATÓRIO DE RECEBIMENTOS TOTAIS
 app.get('/api/relatorio/totais/:academiaid', async (req, res) => {
   try {
     const { academiaid } = req.params;
@@ -1106,7 +890,6 @@ app.get('/api/relatorio/totais/:academiaid', async (req, res) => {
       params.push(datainicio, datafim);
     }
 
-    // União de todas as tabelas de recebimentos
     const query = `
       SELECT 
         DATE_FORMAT(data, '%Y-%m-%d') as data, hora, nome as cliente, valor, atividades as atividade, 
@@ -1141,9 +924,7 @@ app.get('/api/relatorio/totais/:academiaid', async (req, res) => {
       ORDER BY data DESC, hora DESC
     `;
 
-    // Parâmetros duplicados para cada UNION
     const allParams = [...params, ...params, ...params, ...params];
-
     const [rows] = await pool.query(query, allParams);
 
     res.json(rows.map(row => ({
@@ -1191,12 +972,347 @@ app.get('/api/relatorio/frequencia/:academiaid', async (req, res) => {
     query += ' ORDER BY f.data DESC, f.hora DESC';
 
     const [rows] = await pool.query(query, params);
-
     res.json(rows);
 
   } catch (error) {
     console.error('Erro ao buscar relatório de frequência:', error);
     res.status(500).json({ erro: 'Erro ao buscar relatório de frequência' });
+  }
+});
+
+// ===== RELATÓRIOS CONSOLIDADOS (MÚLTIPLAS ACADEMIAS) =====
+
+// 1. MENSALIDADES CONSOLIDADO
+app.get('/api/relatorio/mensalidades/todas', async (req, res) => {
+  try {
+    const { ids, datainicio, datafim } = req.query;
+
+    console.log('=== RELATÓRIO MENSALIDADES CONSOLIDADO ===');
+    console.log('IDs:', ids);
+    console.log('Período:', datainicio, 'até', datafim);
+
+    if (!ids) {
+      return res.status(400).json({ erro: 'IDs são obrigatórios' });
+    }
+
+    const academiaIds = ids.split(',').map(id => parseInt(id));
+
+    let query = `
+      SELECT 
+        DATE_FORMAT(rm.data, '%Y-%m-%d') as data,
+        rm.hora,
+        rm.nome as cliente,
+        rm.valor,
+        rm.atividades as atividade,
+        rm.forma_pgto,
+        rm.tipo_cliente,
+        rm.funcionario
+      FROM recebimentos_mensalidades rm
+      WHERE rm.id_academia IN (?)
+    `;
+
+    const params = [academiaIds];
+
+    if (datainicio && datafim) {
+      query += ' AND DATE(rm.data) >= DATE(?) AND DATE(rm.data) <= DATE(?)';
+      params.push(datainicio, datafim);
+    }
+
+    query += ' ORDER BY rm.data DESC, rm.hora DESC';
+
+    console.log('Query SQL:', query);
+    console.log('Params:', params);
+
+    const [rows] = await pool.query(query, params);
+    console.log('Registros retornados:', rows.length);
+
+    res.json(rows.map(row => ({
+      data: row.data,
+      hora: row.hora,
+      cliente: row.cliente,
+      valor: parseFloat(row.valor),
+      atividade: row.atividade,
+      forma_pgto: row.forma_pgto,
+      tipo_cliente: row.tipo_cliente || 'RENOVAÇÃO',
+      funcionario: row.funcionario
+    })));
+
+  } catch (error) {
+    console.error('Erro ao buscar relatório de mensalidades consolidado:', error);
+    res.status(500).json({ erro: 'Erro ao buscar relatório' });
+  }
+});
+
+// 2. VENDAS CONSOLIDADO
+app.get('/api/relatorio/vendas/todas', async (req, res) => {
+  try {
+    const { ids, datainicio, datafim } = req.query;
+
+    if (!ids) {
+      return res.status(400).json({ erro: 'IDs são obrigatórios' });
+    }
+
+    const academiaIds = ids.split(',').map(id => parseInt(id));
+
+    let query = `
+      SELECT 
+        DATE_FORMAT(rv.data, '%Y-%m-%d') as data,
+        rv.hora,
+        rv.cliente,
+        rv.valor_total as valor,
+        rv.produtos as atividade,
+        rv.forma_pgto,
+        'VENDA' as tipo_cliente,
+        rv.funcionario
+      FROM recebimentos_vendas rv
+      WHERE rv.id_academia IN (?)
+    `;
+
+    const params = [academiaIds];
+
+    if (datainicio && datafim) {
+      query += ' AND DATE(rv.data) >= DATE(?) AND DATE(rv.data) <= DATE(?)';
+      params.push(datainicio, datafim);
+    }
+
+    query += ' ORDER BY rv.data DESC, rv.hora DESC';
+
+    const [rows] = await pool.query(query, params);
+
+    res.json(rows.map(row => ({
+      data: row.data,
+      hora: row.hora,
+      cliente: row.cliente,
+      valor: parseFloat(row.valor),
+      atividade: row.atividade,
+      forma_pgto: row.forma_pgto,
+      tipo_cliente: row.tipo_cliente,
+      funcionario: row.funcionario
+    })));
+
+  } catch (error) {
+    console.error('Erro ao buscar relatório de vendas consolidado:', error);
+    res.status(500).json({ erro: 'Erro ao buscar relatório' });
+  }
+});
+
+// 3. AVALIAÇÕES CONSOLIDADO
+app.get('/api/relatorio/avaliacoes/todas', async (req, res) => {
+  try {
+    const { ids, datainicio, datafim } = req.query;
+
+    if (!ids) {
+      return res.status(400).json({ erro: 'IDs são obrigatórios' });
+    }
+
+    const academiaIds = ids.split(',').map(id => parseInt(id));
+
+    let query = `
+      SELECT 
+        DATE_FORMAT(ra.data, '%Y-%m-%d') as data,
+        ra.hora,
+        ra.cliente,
+        ra.valor,
+        'AVALIAÇÃO FÍSICA' as atividade,
+        '' as forma_pgto,
+        'AVALIAÇÃO' as tipo_cliente,
+        ra.funcionario
+      FROM recebimentos_avaliacoes ra
+      WHERE ra.id_academia IN (?)
+    `;
+
+    const params = [academiaIds];
+
+    if (datainicio && datafim) {
+      query += ' AND DATE(ra.data) >= DATE(?) AND DATE(ra.data) <= DATE(?)';
+      params.push(datainicio, datafim);
+    }
+
+    query += ' ORDER BY ra.data DESC, ra.hora DESC';
+
+    const [rows] = await pool.query(query, params);
+
+    res.json(rows.map(row => ({
+      data: row.data,
+      hora: row.hora,
+      cliente: row.cliente,
+      valor: parseFloat(row.valor),
+      atividade: row.atividade,
+      forma_pgto: row.forma_pgto,
+      tipo_cliente: row.tipo_cliente,
+      funcionario: row.funcionario
+    })));
+
+  } catch (error) {
+    console.error('Erro ao buscar relatório de avaliações consolidado:', error);
+    res.status(500).json({ erro: 'Erro ao buscar relatório' });
+  }
+});
+
+// 4. DIÁRIAS CONSOLIDADO
+app.get('/api/relatorio/diarias/todas', async (req, res) => {
+  try {
+    const { ids, datainicio, datafim } = req.query;
+
+    if (!ids) {
+      return res.status(400).json({ erro: 'IDs são obrigatórios' });
+    }
+
+    const academiaIds = ids.split(',').map(id => parseInt(id));
+
+    let query = `
+      SELECT 
+        DATE_FORMAT(rd.data, '%Y-%m-%d') as data,
+        rd.hora,
+        rd.cliente,
+        rd.valor,
+        'DIÁRIA' as atividade,
+        rd.forma_pgto,
+        'DIÁRIA' as tipo_cliente,
+        rd.funcionario
+      FROM recebimentos_diarias rd
+      WHERE rd.id_academia IN (?)
+    `;
+
+    const params = [academiaIds];
+
+    if (datainicio && datafim) {
+      query += ' AND DATE(rd.data) >= DATE(?) AND DATE(rd.data) <= DATE(?)';
+      params.push(datainicio, datafim);
+    }
+
+    query += ' ORDER BY rd.data DESC, rd.hora DESC';
+
+    const [rows] = await pool.query(query, params);
+
+    res.json(rows.map(row => ({
+      data: row.data,
+      hora: row.hora,
+      cliente: row.cliente,
+      valor: parseFloat(row.valor),
+      atividade: row.atividade,
+      forma_pgto: row.forma_pgto,
+      tipo_cliente: row.tipo_cliente,
+      funcionario: row.funcionario
+    })));
+
+  } catch (error) {
+    console.error('Erro ao buscar relatório de diárias consolidado:', error);
+    res.status(500).json({ erro: 'Erro ao buscar relatório' });
+  }
+});
+
+// 5. TOTAIS CONSOLIDADO
+app.get('/api/relatorio/totais/todas', async (req, res) => {
+  try {
+    const { ids, datainicio, datafim } = req.query;
+
+    if (!ids) {
+      return res.status(400).json({ erro: 'IDs são obrigatórios' });
+    }
+
+    const academiaIds = ids.split(',').map(id => parseInt(id));
+
+    let whereClause = 'WHERE id_academia IN (?)';
+    const params = [academiaIds];
+
+    if (datainicio && datafim) {
+      whereClause += ' AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)';
+      params.push(datainicio, datafim);
+    }
+
+    const query = `
+      SELECT 
+        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, nome as cliente, valor, atividades as atividade, 
+        forma_pgto, tipo_cliente, funcionario, 'MENSALIDADE' as origem
+      FROM recebimentos_mensalidades
+      ${whereClause}
+      
+      UNION ALL
+      
+      SELECT 
+        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, cliente, valor_total as valor, produtos as atividade, 
+        forma_pgto, 'VENDA' as tipo_cliente, funcionario, 'VENDA' as origem
+      FROM recebimentos_vendas
+      ${whereClause}
+      
+      UNION ALL
+      
+      SELECT 
+        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, cliente, valor, 'AVALIAÇÃO FÍSICA' as atividade, 
+        '' as forma_pgto, 'AVALIAÇÃO' as tipo_cliente, funcionario, 'AVALIAÇÃO' as origem
+      FROM recebimentos_avaliacoes
+      ${whereClause}
+      
+      UNION ALL
+      
+      SELECT 
+        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, cliente, valor, 'DIÁRIA' as atividade, 
+        forma_pgto, 'DIÁRIA' as tipo_cliente, funcionario, 'DIÁRIA' as origem
+      FROM recebimentos_diarias
+      ${whereClause}
+      
+      ORDER BY data DESC, hora DESC
+    `;
+
+    const allParams = [...params, ...params, ...params, ...params];
+    const [rows] = await pool.query(query, allParams);
+
+    res.json(rows.map(row => ({
+      data: row.data,
+      hora: row.hora,
+      cliente: row.cliente,
+      valor: parseFloat(row.valor),
+      atividade: row.atividade,
+      forma_pgto: row.forma_pgto,
+      tipo_cliente: row.tipo_cliente,
+      funcionario: row.funcionario,
+      origem: row.origem
+    })));
+
+  } catch (error) {
+    console.error('Erro ao buscar relatório totais consolidado:', error);
+    res.status(500).json({ erro: 'Erro ao buscar relatório' });
+  }
+});
+
+// 6. FREQUÊNCIA CONSOLIDADO
+app.get('/api/relatorio/frequencia/todas', async (req, res) => {
+  try {
+    const { ids, datainicio, datafim } = req.query;
+
+    if (!ids) {
+      return res.status(400).json({ erro: 'IDs são obrigatórios' });
+    }
+
+    const academiaIds = ids.split(',').map(id => parseInt(id));
+
+    let query = `
+      SELECT 
+        DATE_FORMAT(f.data, '%Y-%m-%d') as data,
+        f.hora,
+        f.cliente,
+        f.tipo_acesso,
+        f.motivo
+      FROM frequencia f
+      WHERE f.id_academia IN (?)
+    `;
+
+    const params = [academiaIds];
+
+    if (datainicio && datafim) {
+      query += ' AND DATE(f.data) >= DATE(?) AND DATE(f.data) <= DATE(?)';
+      params.push(datainicio, datafim);
+    }
+
+    query += ' ORDER BY f.data DESC, f.hora DESC';
+
+    const [rows] = await pool.query(query, params);
+    res.json(rows);
+
+  } catch (error) {
+    console.error('Erro ao buscar relatório de frequência consolidado:', error);
+    res.status(500).json({ erro: 'Erro ao buscar relatório' });
   }
 });
 
@@ -1227,5 +1343,5 @@ app.listen(PORT, () => {
 
 // ===== TRATAMENTO DE ERROS =====
 process.on('unhandledRejection', (error) => {
-  console.error('Erro não tratado:', error);
+  console.error(' Erro não tratado:', error);
 });
