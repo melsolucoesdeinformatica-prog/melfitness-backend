@@ -1165,8 +1165,8 @@ app.get('/api/test', async (req, res) => {
 // ===== INICIAR SERVIDOR =====
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor rodando na porta ${PORT}`);
-  console.log(`📡 API disponível em http://localhost:${PORT}/api/test`);
+  console.log(` Servidor rodando na porta ${PORT}`);
+  console.log(` API disponível em http://localhost:${PORT}/api/test`);
 });
 
 // ===== TRATAMENTO DE ERROS =====
