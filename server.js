@@ -470,6 +470,8 @@ app.get('/api/proprietario/dashboard-filtrado', async (req, res) => {
 });
 
 // Endpoint para dashboard consolidado (todas as academias)
+// Cole este código no seu server.js, substituindo o endpoint /api/academias/dashboard-consolidado
+
 app.get('/api/academias/dashboard-consolidado', async (req, res) => {
   try {
     const { ids, datainicio, datafim } = req.query;
@@ -485,7 +487,7 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
 
     const academiaIds = ids.split(',').map(id => parseInt(id));
 
-    // 1. Total de membros ativos (somando todas as academias)
+    // 1. Total de membros ativos
     const [membrosResult] = await pool.query(`
       SELECT COUNT(DISTINCT id_original) as total
       FROM recebimentos_mensalidades
@@ -494,7 +496,7 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
     `, [academiaIds, datainicio, datafim]);
     const totalMembros = membrosResult[0]?.total || 0;
 
-    // 2. Receita total consolidada
+    // 2. Receita total
     const [receitaResult] = await pool.query(`
       SELECT SUM(valor) as total
       FROM recebimentos_mensalidades
@@ -503,16 +505,16 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
     `, [academiaIds, datainicio, datafim]);
     const receitaMensal = parseFloat(receitaResult[0]?.total || 0);
 
-    // 3. Receita diária consolidada
+    // 3. Receita diária (hoje)
     const [receitaDiariaResult] = await pool.query(`
       SELECT COALESCE(SUM(valor), 0) as receitaDiaria
-      FROM recebimentos_diarias
+      FROM recebimentos_mensalidades
       WHERE id_academia IN (?)
       AND DATE(data) = CURDATE()
     `, [academiaIds]);
     const receitaDiaria = parseFloat(receitaDiariaResult[0]?.receitaDiaria || 0);
 
-    // 4. Receitas por mês consolidadas
+    // 4. Receitas por mês
     const [receitasPorMes] = await pool.query(`
       SELECT
         DATE_FORMAT(data, '%b') as mes,
@@ -525,7 +527,7 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       ORDER BY data ASC
     `, [academiaIds, datainicio, datafim]);
 
-    // 5. Receita por forma de pagamento consolidada
+    // 5. Receita por forma de pagamento
     const [receitasPorFormaPgto] = await pool.query(`
       SELECT
         forma_pgto as nome,
@@ -540,7 +542,7 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       ORDER BY valor DESC
     `, [academiaIds, datainicio, datafim]);
 
-    // 6. Planos ativos consolidados
+    // 6. Planos ativos
     const [planosAtivos] = await pool.query(`
       SELECT
         atividades as plano,
@@ -555,23 +557,23 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       ORDER BY receita DESC
     `, [academiaIds, datainicio, datafim]);
 
-    // 7. Pagamentos recentes consolidados
+    // 7. Pagamentos recentes
     const [pagamentosRecentes] = await pool.query(`
       SELECT
-        rm.id,
-        rm.nome,
-        rm.valor,
-        rm.forma_pgto,
-        DATE_FORMAT(rm.data, '%Y-%m-%d') as data,
-        rm.tipo_cliente as tipo
-      FROM recebimentos_mensalidades rm
-      WHERE rm.id_academia IN (?)
-      AND DATE(rm.data) >= DATE(?) AND DATE(rm.data) <= DATE(?)
-      ORDER BY rm.data DESC, rm.hora DESC
+        id,
+        nome,
+        valor,
+        forma_pgto,
+        DATE_FORMAT(data, '%Y-%m-%d') as data,
+        tipo_cliente as tipo
+      FROM recebimentos_mensalidades
+      WHERE id_academia IN (?)
+      AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)
+      ORDER BY data DESC, hora DESC
       LIMIT 20
     `, [academiaIds, datainicio, datafim]);
 
-    // 8. Clientes novos consolidados
+    // 8. Clientes novos
     const [clientesNovos] = await pool.query(`
       SELECT * FROM clientes_novos
       WHERE id_academia IN (?)
@@ -580,7 +582,7 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       LIMIT 10
     `, [academiaIds, datainicio, datafim]);
 
-    // 9. Clientes excluídos consolidados
+    // 9. Clientes excluídos
     const [clientesExcluidos] = await pool.query(`
       SELECT * FROM clientes_excluidos
       WHERE id_academia IN (?)
@@ -589,7 +591,7 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       LIMIT 10
     `, [academiaIds, datainicio, datafim]);
 
-    // 10. Clientes novos por mês consolidados
+    // 10. Clientes novos por mês (últimos 6 meses)
     const [clientesNovosPorMes] = await pool.query(`
       SELECT
         DATE_FORMAT(data, '%b') as mes,
@@ -601,7 +603,7 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       ORDER BY data ASC
     `, [academiaIds]);
 
-    // Retornar dados consolidados
+    // Retornar dados
     res.json({
       totalMembros,
       receitaMensal,
@@ -644,7 +646,7 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
 
   } catch (error) {
     console.error('Erro ao buscar dados consolidados:', error);
-    res.status(500).json({ erro: 'Erro ao buscar dados consolidados' });
+    res.status(500).json({ erro: 'Erro ao buscar dados consolidados', detalhes: error.message });
   }
 });
 
