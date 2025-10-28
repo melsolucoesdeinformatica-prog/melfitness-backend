@@ -42,18 +42,18 @@ const pool = mysql.createPool({
 });
 
 // Testar conexão com o banco
-console.log(' Tentando conectar ao MySQL...');
+console.log('🔵 Tentando conectar ao MySQL...');
 console.log('Host:', process.env.DB_HOST);
 console.log('User:', process.env.DB_USER);
 console.log('Database:', process.env.DB_NAME);
 
 pool.getConnection()
   .then(connection => {
-    console.log(' Conectado ao MySQL com sucesso!');
+    console.log('✅ Conectado ao MySQL com sucesso!');
     connection.release();
   })
   .catch(err => {
-    console.error(' Erro ao conectar no MySQL:', err.message);
+    console.error('❌ Erro ao conectar no MySQL:', err.message);
     console.error('Código do erro:', err.code);
   });
 
