@@ -408,6 +408,19 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       LIMIT 10
     `, [academiaId, datainicio, datafim]);
 
+    // 10. Clientes novos por mês (últimos 6 meses)
+    const [clientesNovosPorMes] = await pool.query(`
+      SELECT
+        DATE_FORMAT(data, '%b') as mes,
+        COUNT(*) as quantidade
+      FROM clientes_novos
+      WHERE id_academia = ?
+      AND DATE(data) >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+      GROUP BY YEAR(data), MONTH(data)
+      ORDER BY data ASC
+    `, [academiaId]);
+
+
     // Retornar os dados
     res.json({
       totalMembros,
@@ -439,6 +452,10 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
       })),
       clientesNovos: clientesNovos,
       clientesExcluidos: clientesExcluidos,
+      clientesNovosPorMes: clientesNovosPorMes.map(c => ({
+        mes: c.mes,
+        quantidade: c.quantidade
+      })),
       periodoFiltrado: {
         datainicio,
         datafim
@@ -788,8 +805,8 @@ app.get('/api/test', async (req, res) => {
 // ===== INICIAR SERVIDOR =====
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor rodando na porta ${PORT}`);
-  console.log(`📡 API disponível em http://localhost:${PORT}/api/test`);
+  console.log(` Servidor rodando na porta ${PORT}`);
+  console.log(` API disponível em http://localhost:${PORT}/api/test`);
 });
 
 // ===== TRATAMENTO DE ERROS =====
