@@ -1,4 +1,4 @@
-// ===== server.js CORRIGIDO - Relatórios Consolidados Funcionando =====
+// ===== server.js  =====
 const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
@@ -32,19 +32,14 @@ const pool = mysql.createPool({
 });
 
 // Testar conexão com o banco
-console.log('🔌 Tentando conectar ao MySQL...');
-console.log('Host:', process.env.DB_HOST);
-console.log('User:', process.env.DB_USER);
-console.log('Database:', process.env.DB_NAME);
-
+console.log(' Tentando conectar ao MySQL...');
 pool.getConnection()
   .then(connection => {
-    console.log(' Conectado ao MySQL com sucesso!');
+    console.log('Conectado ao MySQL com sucesso!');
     connection.release();
   })
   .catch(err => {
     console.error(' Erro ao conectar no MySQL:', err.message);
-    console.error('Código do erro:', err.code);
   });
 
 // ===== ROTA DE LOGIN =====
@@ -411,11 +406,11 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       }
     };
 
-    console.log(' Resposta enviada com sucesso');
+    console.log('✅ Resposta enviada com sucesso');
     res.json(response);
 
   } catch (error) {
-    console.error(' ERRO ao buscar dados consolidados:', error);
+    console.error('❌ ERRO ao buscar dados consolidados:', error);
     res.status(500).json({ 
       erro: 'Erro ao buscar dados consolidados', 
       detalhes: error.message 
@@ -585,15 +580,383 @@ app.get('/api/academia/:id/dashboard-filtrado', async (req, res) => {
   }
 });
 
-// ===== RELATÓRIOS INDIVIDUAIS =====
+// ===== RELATÓRIOS CONSOLIDADOS (DEVEM VIR ANTES DAS ROTAS INDIVIDUAIS) =====
 
-// MENSALIDADES
+// MENSALIDADES CONSOLIDADO
+app.get('/api/relatorio/mensalidades/todas', async (req, res) => {
+  try {
+    const { ids, datainicio, datafim } = req.query;
+
+    console.log('=== RELATÓRIO MENSALIDADES CONSOLIDADO ===');
+    console.log('IDs recebidos:', ids);
+    console.log('Período:', datainicio, 'até', datafim);
+
+    if (!ids) {
+      return res.status(400).json({ erro: 'IDs são obrigatórios' });
+    }
+
+    const academiaIds = ids.split(',').map(id => parseInt(id));
+    console.log('IDs parseados:', academiaIds);
+
+    let query = `
+      SELECT 
+        DATE_FORMAT(rm.data, '%Y-%m-%d') as data,
+        rm.hora,
+        rm.nome as cliente,
+        rm.valor,
+        COALESCE(rm.atividades, '') as atividade,
+        COALESCE(rm.forma_pgto, '') as forma_pgto,
+        COALESCE(rm.tipo_cliente, 'RENOVAÇÃO') as tipo_cliente,
+        COALESCE(rm.funcionario, '') as funcionario
+      FROM recebimentos_mensalidades rm
+      WHERE rm.id_academia IN (?)
+    `;
+
+    const params = [academiaIds];
+
+    if (datainicio && datafim) {
+      query += ' AND DATE(rm.data) >= DATE(?) AND DATE(rm.data) <= DATE(?)';
+      params.push(datainicio, datafim);
+    }
+
+    query += ' ORDER BY rm.data DESC, rm.hora DESC';
+
+    const [rows] = await pool.query(query, params);
+    console.log('✅ Registros retornados:', rows.length);
+
+    res.json(rows.map(row => ({
+      data: row.data,
+      hora: row.hora,
+      cliente: row.cliente,
+      valor: parseFloat(row.valor),
+      atividade: row.atividade,
+      forma_pgto: row.forma_pgto,
+      tipo_cliente: row.tipo_cliente,
+      funcionario: row.funcionario
+    })));
+
+  } catch (error) {
+    console.error('❌ Erro ao buscar relatório consolidado:', error);
+    res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
+  }
+});
+
+// VENDAS CONSOLIDADO
+app.get('/api/relatorio/vendas/todas', async (req, res) => {
+  try {
+    const { ids, datainicio, datafim } = req.query;
+
+    console.log('=== RELATÓRIO VENDAS CONSOLIDADO ===');
+    console.log('IDs recebidos:', ids);
+
+    if (!ids) {
+      return res.status(400).json({ erro: 'IDs são obrigatórios' });
+    }
+
+    const academiaIds = ids.split(',').map(id => parseInt(id));
+
+    let query = `
+      SELECT 
+        DATE_FORMAT(rv.data, '%Y-%m-%d') as data,
+        rv.hora,
+        'Cliente' as cliente,
+        rv.valor_total as valor,
+        COALESCE(rv.produtos, '') as atividade,
+        COALESCE(rv.forma_pgto, '') as forma_pgto,
+        'VENDA' as tipo_cliente,
+        COALESCE(rv.funcionario, '') as funcionario
+      FROM recebimentos_vendas rv
+      WHERE rv.id_academia IN (?)
+    `;
+
+    const params = [academiaIds];
+
+    if (datainicio && datafim) {
+      query += ' AND DATE(rv.data) >= DATE(?) AND DATE(rv.data) <= DATE(?)';
+      params.push(datainicio, datafim);
+    }
+
+    query += ' ORDER BY rv.data DESC, rv.hora DESC';
+
+    const [rows] = await pool.query(query, params);
+    console.log('✅ Registros retornados:', rows.length);
+
+    res.json(rows.map(row => ({
+      data: row.data,
+      hora: row.hora,
+      cliente: row.cliente,
+      valor: parseFloat(row.valor),
+      atividade: row.atividade,
+      forma_pgto: row.forma_pgto,
+      tipo_cliente: row.tipo_cliente,
+      funcionario: row.funcionario
+    })));
+
+  } catch (error) {
+    console.error('❌ Erro ao buscar relatório consolidado:', error);
+    res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
+  }
+});
+
+// AVALIAÇÕES CONSOLIDADO
+app.get('/api/relatorio/avaliacoes/todas', async (req, res) => {
+  try {
+    const { ids, datainicio, datafim } = req.query;
+
+    if (!ids) {
+      return res.status(400).json({ erro: 'IDs são obrigatórios' });
+    }
+
+    const academiaIds = ids.split(',').map(id => parseInt(id));
+
+    let query = `
+      SELECT 
+        DATE_FORMAT(ra.data, '%Y-%m-%d') as data,
+        ra.hora,
+        ra.cliente,
+        ra.valor,
+        'AVALIAÇÃO FÍSICA' as atividade,
+        '' as forma_pgto,
+        'AVALIAÇÃO' as tipo_cliente,
+        COALESCE(ra.funcionario, '') as funcionario
+      FROM recebimentos_avaliacoes ra
+      WHERE ra.id_academia IN (?)
+    `;
+
+    const params = [academiaIds];
+
+    if (datainicio && datafim) {
+      query += ' AND DATE(ra.data) >= DATE(?) AND DATE(ra.data) <= DATE(?)';
+      params.push(datainicio, datafim);
+    }
+
+    query += ' ORDER BY ra.data DESC, ra.hora DESC';
+
+    const [rows] = await pool.query(query, params);
+
+    res.json(rows.map(row => ({
+      data: row.data,
+      hora: row.hora,
+      cliente: row.cliente,
+      valor: parseFloat(row.valor),
+      atividade: row.atividade,
+      forma_pgto: row.forma_pgto,
+      tipo_cliente: row.tipo_cliente,
+      funcionario: row.funcionario
+    })));
+
+  } catch (error) {
+    console.error('Erro ao buscar relatório consolidado:', error);
+    res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
+  }
+});
+
+// DIÁRIAS CONSOLIDADO
+app.get('/api/relatorio/diarias/todas', async (req, res) => {
+  try {
+    const { ids, datainicio, datafim } = req.query;
+
+    console.log('=== RELATÓRIO DIÁRIAS CONSOLIDADO ===');
+    console.log('IDs recebidos:', ids);
+    console.log('Período:', datainicio, 'até', datafim);
+
+    if (!ids) {
+      return res.status(400).json({ erro: 'IDs são obrigatórios' });
+    }
+
+    const academiaIds = ids.split(',').map(id => parseInt(id));
+
+    let query = `
+      SELECT 
+        DATE_FORMAT(rd.data, '%Y-%m-%d') as data,
+        rd.hora,
+        rd.cliente,
+        rd.valor,
+        'DIÁRIA' as atividade,
+        '' as forma_pgto,
+        'DIÁRIA' as tipo_cliente,
+        COALESCE(rd.funcionario, '') as funcionario
+      FROM recebimentos_diarias rd
+      WHERE rd.id_academia IN (?)
+    `;
+
+    const params = [academiaIds];
+
+    if (datainicio && datafim) {
+      query += ' AND DATE(rd.data) >= DATE(?) AND DATE(rd.data) <= DATE(?)';
+      params.push(datainicio, datafim);
+    }
+
+    query += ' ORDER BY rd.data DESC, rd.hora DESC';
+
+    const [rows] = await pool.query(query, params);
+    console.log('✅ Registros retornados:', rows.length);
+
+    res.json(rows.map(row => ({
+      data: row.data,
+      hora: row.hora,
+      cliente: row.cliente,
+      valor: parseFloat(row.valor),
+      atividade: row.atividade,
+      forma_pgto: row.forma_pgto,
+      tipo_cliente: row.tipo_cliente,
+      funcionario: row.funcionario
+    })));
+
+  } catch (error) {
+    console.error('❌ Erro ao buscar relatório consolidado:', error);
+    res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
+  }
+});
+
+// TOTAIS CONSOLIDADO
+app.get('/api/relatorio/totais/todas', async (req, res) => {
+  try {
+    const { ids, datainicio, datafim } = req.query;
+
+    console.log('=== RELATÓRIO TOTAIS CONSOLIDADO ===');
+    console.log('IDs recebidos:', ids);
+
+    if (!ids) {
+      return res.status(400).json({ erro: 'IDs são obrigatórios' });
+    }
+
+    const academiaIds = ids.split(',').map(id => parseInt(id));
+
+    let whereClause = 'WHERE id_academia IN (?)';
+    const params = [academiaIds];
+
+    if (datainicio && datafim) {
+      whereClause += ' AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)';
+      params.push(datainicio, datafim);
+    }
+
+    const query = `
+      SELECT 
+        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, nome as cliente, valor, 
+        COALESCE(atividades, '') as atividade, 
+        COALESCE(forma_pgto, '') as forma_pgto, 
+        COALESCE(tipo_cliente, 'RENOVAÇÃO') as tipo_cliente, 
+        COALESCE(funcionario, '') as funcionario, 
+        'MENSALIDADE' as origem
+      FROM recebimentos_mensalidades
+      ${whereClause}
+      
+      UNION ALL
+      
+      SELECT 
+        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, 'Cliente' as cliente, valor_total as valor, 
+        COALESCE(produtos, '') as atividade, 
+        COALESCE(forma_pgto, '') as forma_pgto, 
+        'VENDA' as tipo_cliente, 
+        COALESCE(funcionario, '') as funcionario, 
+        'VENDA' as origem
+      FROM recebimentos_vendas
+      ${whereClause}
+      
+      UNION ALL
+      
+      SELECT 
+        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, cliente, valor, 
+        'AVALIAÇÃO FÍSICA' as atividade, 
+        '' as forma_pgto, 
+        'AVALIAÇÃO' as tipo_cliente, 
+        COALESCE(funcionario, '') as funcionario, 
+        'AVALIAÇÃO' as origem
+      FROM recebimentos_avaliacoes
+      ${whereClause}
+      
+      UNION ALL
+      
+      SELECT 
+        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, cliente, valor, 
+        'DIÁRIA' as atividade, 
+        '' as forma_pgto, 
+        'DIÁRIA' as tipo_cliente, 
+        COALESCE(funcionario, '') as funcionario, 
+        'DIÁRIA' as origem
+      FROM recebimentos_diarias
+      ${whereClause}
+      
+      ORDER BY data DESC, hora DESC
+    `;
+
+    const allParams = [...params, ...params, ...params, ...params];
+    const [rows] = await pool.query(query, allParams);
+    console.log('✅ Registros retornados:', rows.length);
+
+    res.json(rows.map(row => ({
+      data: row.data,
+      hora: row.hora,
+      cliente: row.cliente,
+      valor: parseFloat(row.valor),
+      atividade: row.atividade,
+      forma_pgto: row.forma_pgto,
+      tipo_cliente: row.tipo_cliente,
+      funcionario: row.funcionario,
+      origem: row.origem
+    })));
+
+  } catch (error) {
+    console.error('❌ Erro ao buscar relatório consolidado:', error);
+    res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
+  }
+});
+
+// FREQUÊNCIA CONSOLIDADO
+app.get('/api/relatorio/frequencia/todas', async (req, res) => {
+  try {
+    const { ids, datainicio, datafim } = req.query;
+
+    console.log('=== RELATÓRIO FREQUÊNCIA CONSOLIDADO ===');
+    console.log('IDs recebidos:', ids);
+
+    if (!ids) {
+      return res.status(400).json({ erro: 'IDs são obrigatórios' });
+    }
+
+    const academiaIds = ids.split(',').map(id => parseInt(id));
+
+    let query = `
+      SELECT 
+        DATE_FORMAT(f.data, '%Y-%m-%d') as data,
+        f.hora,
+        f.cliente,
+        COALESCE(f.tipo_acesso, '') as tipo_acesso,
+        COALESCE(f.motivo, '') as motivo
+      FROM frequencia f
+      WHERE f.id_academia IN (?)
+    `;
+
+    const params = [academiaIds];
+
+    if (datainicio && datafim) {
+      query += ' AND DATE(f.data) >= DATE(?) AND DATE(f.data) <= DATE(?)';
+      params.push(datainicio, datafim);
+    }
+
+    query += ' ORDER BY f.data DESC, f.hora DESC';
+
+    const [rows] = await pool.query(query, params);
+    console.log('✅ Registros retornados:', rows.length);
+    
+    res.json(rows);
+
+  } catch (error) {
+    console.error('❌ Erro ao buscar relatório consolidado:', error);
+    res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
+  }
+});
+
+// ===== RELATÓRIOS INDIVIDUAIS (DEVEM VIR DEPOIS DAS ROTAS CONSOLIDADAS) =====
+
+// MENSALIDADES INDIVIDUAL
 app.get('/api/relatorio/mensalidades/:academiaid', async (req, res) => {
   try {
     const { academiaid } = req.params;
     const { datainicio, datafim } = req.query;
 
-    console.log('=== RELATÓRIO MENSALIDADES ===');
+    console.log('=== RELATÓRIO MENSALIDADES INDIVIDUAL ===');
     console.log('Academia:', academiaid);
     console.log('Período:', datainicio, 'até', datafim);
 
@@ -640,7 +1003,7 @@ app.get('/api/relatorio/mensalidades/:academiaid', async (req, res) => {
   }
 });
 
-// VENDAS (INDIVIDUAL)
+// VENDAS INDIVIDUAL
 app.get('/api/relatorio/vendas/:academiaid', async (req, res) => {
   try {
     const { academiaid } = req.params;
@@ -688,7 +1051,7 @@ app.get('/api/relatorio/vendas/:academiaid', async (req, res) => {
   }
 });
 
-// AVALIAÇÕES
+// AVALIAÇÕES INDIVIDUAL
 app.get('/api/relatorio/avaliacoes/:academiaid', async (req, res) => {
   try {
     const { academiaid } = req.params;
@@ -736,15 +1099,11 @@ app.get('/api/relatorio/avaliacoes/:academiaid', async (req, res) => {
   }
 });
 
-// DIÁRIAS (INDIVIDUAL)
+// DIÁRIAS INDIVIDUAL
 app.get('/api/relatorio/diarias/:academiaid', async (req, res) => {
   try {
     const { academiaid } = req.params;
     const { datainicio, datafim } = req.query;
-
-    console.log('=== RELATÓRIO DIÁRIAS ===');
-    console.log('Academia:', academiaid);
-    console.log('Período:', datainicio, 'até', datafim);
 
     let query = `
       SELECT 
@@ -770,7 +1129,6 @@ app.get('/api/relatorio/diarias/:academiaid', async (req, res) => {
     query += ' ORDER BY rd.data DESC, rd.hora DESC';
 
     const [rows] = await pool.query(query, params);
-    console.log('Registros retornados:', rows.length);
 
     res.json(rows.map(row => ({
       data: row.data,
@@ -789,7 +1147,7 @@ app.get('/api/relatorio/diarias/:academiaid', async (req, res) => {
   }
 });
 
-// TOTAIS (INDIVIDUAL)
+// TOTAIS INDIVIDUAL
 app.get('/api/relatorio/totais/:academiaid', async (req, res) => {
   try {
     const { academiaid } = req.params;
@@ -874,7 +1232,7 @@ app.get('/api/relatorio/totais/:academiaid', async (req, res) => {
   }
 });
 
-// FREQUÊNCIA
+// FREQUÊNCIA INDIVIDUAL
 app.get('/api/relatorio/frequencia/:academiaid', async (req, res) => {
   try {
     const { academiaid } = req.params;
@@ -905,369 +1263,6 @@ app.get('/api/relatorio/frequencia/:academiaid', async (req, res) => {
 
   } catch (error) {
     console.error('Erro ao buscar relatório de frequência:', error);
-    res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
-  }
-});
-
-// ===== RELATÓRIOS CONSOLIDADOS =====
-
-// MENSALIDADES CONSOLIDADO (CORRIGIDO)
-app.get('/api/relatorio/mensalidades/todas', async (req, res) => {
-  try {
-    const { ids, datainicio, datafim } = req.query;
-
-    console.log('=== RELATÓRIO MENSALIDADES CONSOLIDADO ===');
-    console.log('IDs recebidos:', ids);
-    console.log('Período:', datainicio, 'até', datafim);
-
-    if (!ids) {
-      return res.status(400).json({ erro: 'IDs são obrigatórios' });
-    }
-
-    const academiaIds = ids.split(',').map(id => parseInt(id));
-    console.log('IDs parseados:', academiaIds);
-
-    let query = `
-      SELECT 
-        DATE_FORMAT(rm.data, '%Y-%m-%d') as data,
-        rm.hora,
-        rm.nome as cliente,
-        rm.valor,
-        COALESCE(rm.atividades, '') as atividade,
-        COALESCE(rm.forma_pgto, '') as forma_pgto,
-        COALESCE(rm.tipo_cliente, 'RENOVAÇÃO') as tipo_cliente,
-        COALESCE(rm.funcionario, '') as funcionario
-      FROM recebimentos_mensalidades rm
-      WHERE rm.id_academia IN (?)
-    `;
-
-    const params = [academiaIds];
-
-    if (datainicio && datafim) {
-      query += ' AND DATE(rm.data) >= DATE(?) AND DATE(rm.data) <= DATE(?)';
-      params.push(datainicio, datafim);
-    }
-
-    query += ' ORDER BY rm.data DESC, rm.hora DESC';
-
-    const [rows] = await pool.query(query, params);
-    console.log(' Registros retornados:', rows.length);
-
-    res.json(rows.map(row => ({
-      data: row.data,
-      hora: row.hora,
-      cliente: row.cliente,
-      valor: parseFloat(row.valor),
-      atividade: row.atividade,
-      forma_pgto: row.forma_pgto,
-      tipo_cliente: row.tipo_cliente,
-      funcionario: row.funcionario
-    })));
-
-  } catch (error) {
-    console.error(' Erro ao buscar relatório consolidado:', error);
-    res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
-  }
-});
-
-// VENDAS CONSOLIDADO (CORRIGIDO)
-app.get('/api/relatorio/vendas/todas', async (req, res) => {
-  try {
-    const { ids, datainicio, datafim } = req.query;
-
-    console.log('=== RELATÓRIO VENDAS CONSOLIDADO ===');
-    console.log('IDs recebidos:', ids);
-
-    if (!ids) {
-      return res.status(400).json({ erro: 'IDs são obrigatórios' });
-    }
-
-    const academiaIds = ids.split(',').map(id => parseInt(id));
-
-    let query = `
-      SELECT 
-        DATE_FORMAT(rv.data, '%Y-%m-%d') as data,
-        rv.hora,
-        'Cliente' as cliente,
-        rv.valor_total as valor,
-        COALESCE(rv.produtos, '') as atividade,
-        COALESCE(rv.forma_pgto, '') as forma_pgto,
-        'VENDA' as tipo_cliente,
-        COALESCE(rv.funcionario, '') as funcionario
-      FROM recebimentos_vendas rv
-      WHERE rv.id_academia IN (?)
-    `;
-
-    const params = [academiaIds];
-
-    if (datainicio && datafim) {
-      query += ' AND DATE(rv.data) >= DATE(?) AND DATE(rv.data) <= DATE(?)';
-      params.push(datainicio, datafim);
-    }
-
-    query += ' ORDER BY rv.data DESC, rv.hora DESC';
-
-    const [rows] = await pool.query(query, params);
-    console.log(' Registros retornados:', rows.length);
-
-    res.json(rows.map(row => ({
-      data: row.data,
-      hora: row.hora,
-      cliente: row.cliente,
-      valor: parseFloat(row.valor),
-      atividade: row.atividade,
-      forma_pgto: row.forma_pgto,
-      tipo_cliente: row.tipo_cliente,
-      funcionario: row.funcionario
-    })));
-
-  } catch (error) {
-    console.error(' Erro ao buscar relatório consolidado:', error);
-    res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
-  }
-});
-
-// AVALIAÇÕES CONSOLIDADO
-app.get('/api/relatorio/avaliacoes/todas', async (req, res) => {
-  try {
-    const { ids, datainicio, datafim } = req.query;
-
-    if (!ids) {
-      return res.status(400).json({ erro: 'IDs são obrigatórios' });
-    }
-
-    const academiaIds = ids.split(',').map(id => parseInt(id));
-
-    let query = `
-      SELECT 
-        DATE_FORMAT(ra.data, '%Y-%m-%d') as data,
-        ra.hora,
-        ra.cliente,
-        ra.valor,
-        'AVALIAÇÃO FÍSICA' as atividade,
-        '' as forma_pgto,
-        'AVALIAÇÃO' as tipo_cliente,
-        COALESCE(ra.funcionario, '') as funcionario
-      FROM recebimentos_avaliacoes ra
-      WHERE ra.id_academia IN (?)
-    `;
-
-    const params = [academiaIds];
-
-    if (datainicio && datafim) {
-      query += ' AND DATE(ra.data) >= DATE(?) AND DATE(ra.data) <= DATE(?)';
-      params.push(datainicio, datafim);
-    }
-
-    query += ' ORDER BY ra.data DESC, ra.hora DESC';
-
-    const [rows] = await pool.query(query, params);
-
-    res.json(rows.map(row => ({
-      data: row.data,
-      hora: row.hora,
-      cliente: row.cliente,
-      valor: parseFloat(row.valor),
-      atividade: row.atividade,
-      forma_pgto: row.forma_pgto,
-      tipo_cliente: row.tipo_cliente,
-      funcionario: row.funcionario
-    })));
-
-  } catch (error) {
-    console.error('Erro ao buscar relatório consolidado:', error);
-    res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
-  }
-});
-
-// DIÁRIAS CONSOLIDADO (CORRIGIDO)
-app.get('/api/relatorio/diarias/todas', async (req, res) => {
-  try {
-    const { ids, datainicio, datafim } = req.query;
-
-    console.log('=== RELATÓRIO DIÁRIAS CONSOLIDADO ===');
-    console.log('IDs recebidos:', ids);
-    console.log('Período:', datainicio, 'até', datafim);
-
-    if (!ids) {
-      return res.status(400).json({ erro: 'IDs são obrigatórios' });
-    }
-
-    const academiaIds = ids.split(',').map(id => parseInt(id));
-
-    let query = `
-      SELECT 
-        DATE_FORMAT(rd.data, '%Y-%m-%d') as data,
-        rd.hora,
-        rd.cliente,
-        rd.valor,
-        'DIÁRIA' as atividade,
-        '' as forma_pgto,
-        'DIÁRIA' as tipo_cliente,
-        COALESCE(rd.funcionario, '') as funcionario
-      FROM recebimentos_diarias rd
-      WHERE rd.id_academia IN (?)
-    `;
-
-    const params = [academiaIds];
-
-    if (datainicio && datafim) {
-      query += ' AND DATE(rd.data) >= DATE(?) AND DATE(rd.data) <= DATE(?)';
-      params.push(datainicio, datafim);
-    }
-
-    query += ' ORDER BY rd.data DESC, rd.hora DESC';
-
-    const [rows] = await pool.query(query, params);
-    console.log(' Registros retornados:', rows.length);
-
-    res.json(rows.map(row => ({
-      data: row.data,
-      hora: row.hora,
-      cliente: row.cliente,
-      valor: parseFloat(row.valor),
-      atividade: row.atividade,
-      forma_pgto: row.forma_pgto,
-      tipo_cliente: row.tipo_cliente,
-      funcionario: row.funcionario
-    })));
-
-  } catch (error) {
-    console.error(' Erro ao buscar relatório consolidado:', error);
-    res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
-  }
-});
-
-// TOTAIS CONSOLIDADO (CORRIGIDO)
-app.get('/api/relatorio/totais/todas', async (req, res) => {
-  try {
-    const { ids, datainicio, datafim } = req.query;
-
-    console.log('=== RELATÓRIO TOTAIS CONSOLIDADO ===');
-    console.log('IDs recebidos:', ids);
-
-    if (!ids) {
-      return res.status(400).json({ erro: 'IDs são obrigatórios' });
-    }
-
-    const academiaIds = ids.split(',').map(id => parseInt(id));
-
-    let whereClause = 'WHERE id_academia IN (?)';
-    const params = [academiaIds];
-
-    if (datainicio && datafim) {
-      whereClause += ' AND DATE(data) >= DATE(?) AND DATE(data) <= DATE(?)';
-      params.push(datainicio, datafim);
-    }
-
-    const query = `
-      SELECT 
-        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, nome as cliente, valor, 
-        COALESCE(atividades, '') as atividade, 
-        COALESCE(forma_pgto, '') as forma_pgto, 
-        COALESCE(tipo_cliente, 'RENOVAÇÃO') as tipo_cliente, 
-        COALESCE(funcionario, '') as funcionario, 
-        'MENSALIDADE' as origem
-      FROM recebimentos_mensalidades
-      ${whereClause}
-      
-      UNION ALL
-      
-      SELECT 
-        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, 'Cliente' as cliente, valor_total as valor, 
-        COALESCE(produtos, '') as atividade, 
-        COALESCE(forma_pgto, '') as forma_pgto, 
-        'VENDA' as tipo_cliente, 
-        COALESCE(funcionario, '') as funcionario, 
-        'VENDA' as origem
-      FROM recebimentos_vendas
-      ${whereClause}
-      
-      UNION ALL
-      
-      SELECT 
-        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, cliente, valor, 
-        'AVALIAÇÃO FÍSICA' as atividade, 
-        '' as forma_pgto, 
-        'AVALIAÇÃO' as tipo_cliente, 
-        COALESCE(funcionario, '') as funcionario, 
-        'AVALIAÇÃO' as origem
-      FROM recebimentos_avaliacoes
-      ${whereClause}
-      
-      UNION ALL
-      
-      SELECT 
-        DATE_FORMAT(data, '%Y-%m-%d') as data, hora, cliente, valor, 
-        'DIÁRIA' as atividade, 
-        '' as forma_pgto, 
-        'DIÁRIA' as tipo_cliente, 
-        COALESCE(funcionario, '') as funcionario, 
-        'DIÁRIA' as origem
-      FROM recebimentos_diarias
-      ${whereClause}
-      
-      ORDER BY data DESC, hora DESC
-    `;
-
-    const allParams = [...params, ...params, ...params, ...params];
-    const [rows] = await pool.query(query, allParams);
-    console.log(' Registros retornados:', rows.length);
-
-    res.json(rows.map(row => ({
-      data: row.data,
-      hora: row.hora,
-      cliente: row.cliente,
-      valor: parseFloat(row.valor),
-      atividade: row.atividade,
-      forma_pgto: row.forma_pgto,
-      tipo_cliente: row.tipo_cliente,
-      funcionario: row.funcionario,
-      origem: row.origem
-    })));
-
-  } catch (error) {
-    console.error(' Erro ao buscar relatório consolidado:', error);
-    res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
-  }
-});
-
-// FREQUÊNCIA CONSOLIDADO
-app.get('/api/relatorio/frequencia/todas', async (req, res) => {
-  try {
-    const { ids, datainicio, datafim } = req.query;
-
-    if (!ids) {
-      return res.status(400).json({ erro: 'IDs são obrigatórios' });
-    }
-
-    const academiaIds = ids.split(',').map(id => parseInt(id));
-
-    let query = `
-      SELECT 
-        DATE_FORMAT(f.data, '%Y-%m-%d') as data,
-        f.hora,
-        f.cliente,
-        COALESCE(f.tipo_acesso, '') as tipo_acesso,
-        COALESCE(f.motivo, '') as motivo
-      FROM frequencia f
-      WHERE f.id_academia IN (?)
-    `;
-
-    const params = [academiaIds];
-
-    if (datainicio && datafim) {
-      query += ' AND DATE(f.data) >= DATE(?) AND DATE(f.data) <= DATE(?)';
-      params.push(datainicio, datafim);
-    }
-
-    query += ' ORDER BY f.data DESC, f.hora DESC';
-
-    const [rows] = await pool.query(query, params);
-    res.json(rows);
-
-  } catch (error) {
-    console.error('Erro ao buscar relatório consolidado:', error);
     res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
   }
 });
