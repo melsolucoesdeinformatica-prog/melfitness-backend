@@ -66,23 +66,15 @@ app.post('/api/login', async (req, res) => {
       WHERE pa.id_proprietario = ?
     `, [proprietario.id]);
 
-    const academiasComDados = await Promise.all(
-      academias.map(async (academia) => {
-        const dashboardData = await getDashboardData(academia.id);
-        return {
-          ...academia,
-          ...dashboardData
-        };
-      })
-    );
+  
 
     res.json({
-      id: proprietario.id,
-      nome: proprietario.nome,
-      cpf: proprietario.cpf,
-      academias: academiasComDados
-    });
-
+  id: proprietario.id,
+  nome: proprietario.nome,
+  cpf: proprietario.cpf,
+  academias: academias
+  });
+  
   } catch (error) {
     console.error('Erro no login:', error);
     res.status(500).json({ error: 'Erro ao fazer login' });
