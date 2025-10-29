@@ -1,4 +1,4 @@
-// ===== server.js DEFINITIVO - Estrutura Correta do Banco =====
+// ===== server.js CORRIGIDO - Relatórios Consolidados Funcionando =====
 const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
@@ -32,7 +32,7 @@ const pool = mysql.createPool({
 });
 
 // Testar conexão com o banco
-console.log(' Tentando conectar ao MySQL...');
+console.log('🔌 Tentando conectar ao MySQL...');
 console.log('Host:', process.env.DB_HOST);
 console.log('User:', process.env.DB_USER);
 console.log('Database:', process.env.DB_NAME);
@@ -411,11 +411,11 @@ app.get('/api/academias/dashboard-consolidado', async (req, res) => {
       }
     };
 
-    console.log('✅ Resposta enviada com sucesso');
+    console.log(' Resposta enviada com sucesso');
     res.json(response);
 
   } catch (error) {
-    console.error('❌ ERRO ao buscar dados consolidados:', error);
+    console.error(' ERRO ao buscar dados consolidados:', error);
     res.status(500).json({ 
       erro: 'Erro ao buscar dados consolidados', 
       detalhes: error.message 
@@ -640,7 +640,7 @@ app.get('/api/relatorio/mensalidades/:academiaid', async (req, res) => {
   }
 });
 
-// VENDAS
+// VENDAS (INDIVIDUAL)
 app.get('/api/relatorio/vendas/:academiaid', async (req, res) => {
   try {
     const { academiaid } = req.params;
@@ -653,7 +653,7 @@ app.get('/api/relatorio/vendas/:academiaid', async (req, res) => {
         'Cliente' as cliente,
         rv.valor_total as valor,
         COALESCE(rv.produtos, '') as atividade,
-        COALESCE(rv.forma, '') as forma_pgto,
+        COALESCE(rv.forma_pgto, '') as forma_pgto,
         'VENDA' as tipo_cliente,
         COALESCE(rv.funcionario, '') as funcionario
       FROM recebimentos_vendas rv
@@ -736,7 +736,7 @@ app.get('/api/relatorio/avaliacoes/:academiaid', async (req, res) => {
   }
 });
 
-// DIÁRIAS (CORRIGIDO - SEM forma_pgto)
+// DIÁRIAS (INDIVIDUAL)
 app.get('/api/relatorio/diarias/:academiaid', async (req, res) => {
   try {
     const { academiaid } = req.params;
@@ -789,7 +789,7 @@ app.get('/api/relatorio/diarias/:academiaid', async (req, res) => {
   }
 });
 
-// TOTAIS
+// TOTAIS (INDIVIDUAL)
 app.get('/api/relatorio/totais/:academiaid', async (req, res) => {
   try {
     const { academiaid } = req.params;
@@ -819,7 +819,7 @@ app.get('/api/relatorio/totais/:academiaid', async (req, res) => {
       SELECT 
         DATE_FORMAT(data, '%Y-%m-%d') as data, hora, 'Cliente' as cliente, valor_total as valor, 
         COALESCE(produtos, '') as atividade, 
-        COALESCE(forma, '') as forma_pgto, 
+        COALESCE(forma_pgto, '') as forma_pgto, 
         'VENDA' as tipo_cliente, 
         COALESCE(funcionario, '') as funcionario, 
         'VENDA' as origem
@@ -911,13 +911,13 @@ app.get('/api/relatorio/frequencia/:academiaid', async (req, res) => {
 
 // ===== RELATÓRIOS CONSOLIDADOS =====
 
-// MENSALIDADES CONSOLIDADO
+// MENSALIDADES CONSOLIDADO (CORRIGIDO)
 app.get('/api/relatorio/mensalidades/todas', async (req, res) => {
   try {
     const { ids, datainicio, datafim } = req.query;
 
     console.log('=== RELATÓRIO MENSALIDADES CONSOLIDADO ===');
-    console.log('IDs:', ids);
+    console.log('IDs recebidos:', ids);
     console.log('Período:', datainicio, 'até', datafim);
 
     if (!ids) {
@@ -925,6 +925,7 @@ app.get('/api/relatorio/mensalidades/todas', async (req, res) => {
     }
 
     const academiaIds = ids.split(',').map(id => parseInt(id));
+    console.log('IDs parseados:', academiaIds);
 
     let query = `
       SELECT 
@@ -950,7 +951,7 @@ app.get('/api/relatorio/mensalidades/todas', async (req, res) => {
     query += ' ORDER BY rm.data DESC, rm.hora DESC';
 
     const [rows] = await pool.query(query, params);
-    console.log('Registros retornados:', rows.length);
+    console.log(' Registros retornados:', rows.length);
 
     res.json(rows.map(row => ({
       data: row.data,
@@ -964,15 +965,18 @@ app.get('/api/relatorio/mensalidades/todas', async (req, res) => {
     })));
 
   } catch (error) {
-    console.error('Erro ao buscar relatório consolidado:', error);
+    console.error(' Erro ao buscar relatório consolidado:', error);
     res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
   }
 });
 
-// VENDAS CONSOLIDADO
+// VENDAS CONSOLIDADO (CORRIGIDO)
 app.get('/api/relatorio/vendas/todas', async (req, res) => {
   try {
     const { ids, datainicio, datafim } = req.query;
+
+    console.log('=== RELATÓRIO VENDAS CONSOLIDADO ===');
+    console.log('IDs recebidos:', ids);
 
     if (!ids) {
       return res.status(400).json({ erro: 'IDs são obrigatórios' });
@@ -987,7 +991,7 @@ app.get('/api/relatorio/vendas/todas', async (req, res) => {
         'Cliente' as cliente,
         rv.valor_total as valor,
         COALESCE(rv.produtos, '') as atividade,
-        COALESCE(rv.forma, '') as forma_pgto,
+        COALESCE(rv.forma_pgto, '') as forma_pgto,
         'VENDA' as tipo_cliente,
         COALESCE(rv.funcionario, '') as funcionario
       FROM recebimentos_vendas rv
@@ -1004,6 +1008,7 @@ app.get('/api/relatorio/vendas/todas', async (req, res) => {
     query += ' ORDER BY rv.data DESC, rv.hora DESC';
 
     const [rows] = await pool.query(query, params);
+    console.log(' Registros retornados:', rows.length);
 
     res.json(rows.map(row => ({
       data: row.data,
@@ -1017,7 +1022,7 @@ app.get('/api/relatorio/vendas/todas', async (req, res) => {
     })));
 
   } catch (error) {
-    console.error('Erro ao buscar relatório consolidado:', error);
+    console.error(' Erro ao buscar relatório consolidado:', error);
     res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
   }
 });
@@ -1075,13 +1080,13 @@ app.get('/api/relatorio/avaliacoes/todas', async (req, res) => {
   }
 });
 
-// DIÁRIAS CONSOLIDADO
+// DIÁRIAS CONSOLIDADO (CORRIGIDO)
 app.get('/api/relatorio/diarias/todas', async (req, res) => {
   try {
     const { ids, datainicio, datafim } = req.query;
 
     console.log('=== RELATÓRIO DIÁRIAS CONSOLIDADO ===');
-    console.log('IDs:', ids);
+    console.log('IDs recebidos:', ids);
     console.log('Período:', datainicio, 'até', datafim);
 
     if (!ids) {
@@ -1114,7 +1119,7 @@ app.get('/api/relatorio/diarias/todas', async (req, res) => {
     query += ' ORDER BY rd.data DESC, rd.hora DESC';
 
     const [rows] = await pool.query(query, params);
-    console.log('Registros retornados:', rows.length);
+    console.log(' Registros retornados:', rows.length);
 
     res.json(rows.map(row => ({
       data: row.data,
@@ -1128,15 +1133,18 @@ app.get('/api/relatorio/diarias/todas', async (req, res) => {
     })));
 
   } catch (error) {
-    console.error('Erro ao buscar relatório consolidado:', error);
+    console.error(' Erro ao buscar relatório consolidado:', error);
     res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
   }
 });
 
-// TOTAIS CONSOLIDADO
+// TOTAIS CONSOLIDADO (CORRIGIDO)
 app.get('/api/relatorio/totais/todas', async (req, res) => {
   try {
     const { ids, datainicio, datafim } = req.query;
+
+    console.log('=== RELATÓRIO TOTAIS CONSOLIDADO ===');
+    console.log('IDs recebidos:', ids);
 
     if (!ids) {
       return res.status(400).json({ erro: 'IDs são obrigatórios' });
@@ -1168,7 +1176,7 @@ app.get('/api/relatorio/totais/todas', async (req, res) => {
       SELECT 
         DATE_FORMAT(data, '%Y-%m-%d') as data, hora, 'Cliente' as cliente, valor_total as valor, 
         COALESCE(produtos, '') as atividade, 
-        COALESCE(forma, '') as forma_pgto, 
+        COALESCE(forma_pgto, '') as forma_pgto, 
         'VENDA' as tipo_cliente, 
         COALESCE(funcionario, '') as funcionario, 
         'VENDA' as origem
@@ -1204,6 +1212,7 @@ app.get('/api/relatorio/totais/todas', async (req, res) => {
 
     const allParams = [...params, ...params, ...params, ...params];
     const [rows] = await pool.query(query, allParams);
+    console.log(' Registros retornados:', rows.length);
 
     res.json(rows.map(row => ({
       data: row.data,
@@ -1218,7 +1227,7 @@ app.get('/api/relatorio/totais/todas', async (req, res) => {
     })));
 
   } catch (error) {
-    console.error('Erro ao buscar relatório consolidado:', error);
+    console.error(' Erro ao buscar relatório consolidado:', error);
     res.status(500).json({ erro: 'Erro ao buscar relatório', detalhes: error.message });
   }
 });
@@ -1290,5 +1299,5 @@ app.listen(PORT, () => {
 
 // ===== TRATAMENTO DE ERROS =====
 process.on('unhandledRejection', (error) => {
-  console.error(' Erro não tratado:', error);
+  console.error('Erro não tratado:', error);
 });
